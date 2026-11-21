@@ -12,6 +12,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from orion_app.api.auth import open_session, user_payload
@@ -20,7 +21,8 @@ from orion_app.auth.diagnostics import explain
 from orion_app.connectors import ldap_auth
 from orion_app.deps import client_ip, get_db
 from orion_app.services import audit, auth_config
-from orion_app.services.identity import External, SignInRefused, resolve
+from orion_app.models import User
+from orion_app.services.identity import PENDING, External, SignInRefused, resolve
 from orion_app.services.logs import scrub_text
 
 router = APIRouter(prefix="/api/auth", tags=["sso"])
@@ -37,11 +39,19 @@ def _blocked(request: Request, key: str, limit: int = 30) -> bool:
     return settings.rate_limit_enabled and limiter.count(key, 300) >= limit
 
 
+def _has_idp_accounts(db: DbSession, issuer: str) -> bool:
+    """Whether an active account signs in through this identity provider (or awaits its first SSO sign-in)."""
+    issuer = issuer.rstrip("/")
+    return db.execute(select(User.id).where(User.active.is_(True), User.issuer.in_((issuer, f"{issuer}/", PENDING))).limit(1)).first() is not None
+
+
 @router.get("/providers")
 def providers(request: Request, db: DbSession = Depends(get_db)) -> dict:
     cfg = auth_config.effective(db, request.app.state.settings)
+    # SSO is the primary sign-in only once accounts are managed by the IdP; until then local sign-in comes first
+    # and SSO stays available among the other methods.
     return {"local": True, "crashtest": request.app.state.settings.crashtest,
-            "sso": {"enabled": cfg.oidc, "provider": cfg.provider} if cfg.oidc else {"enabled": False},
+            "sso": {"enabled": True, "provider": cfg.provider, "primary": _has_idp_accounts(db, cfg.issuer)} if cfg.oidc else {"enabled": False},
             "ldap": {"enabled": cfg.ldap_enabled, "name": cfg.ldap.get("name", "")} if cfg.ldap_enabled else {"enabled": False}}
 
 
