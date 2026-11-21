@@ -18,7 +18,7 @@ sign-in and managed in *Administration → Users*.
    ORION_OIDC_CLIENT_SECRET=<secret>
    ORION_OIDC_DEFAULT_ROLE=USER
    ```
-   then `docker compose up -d api`. A "Sign in with SSO" button appears; the local administrator keeps working.
+   then `docker compose up -d api`. "Sign in with SSO" appears under *Other sign-in methods*, and becomes the main *Sign in* button once an account is managed by Entra; the local administrator keeps working.
    Alternatively, configure Entra in *Administration → Authentication* and enter the client secret there (stored encrypted;
    see [authentication](../admin/authentication.md#entra-client-secret-entered-in-the-page)).
 4. Promote people in *Administration → Users*.

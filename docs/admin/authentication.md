@@ -13,6 +13,17 @@ If an OIDC federation is already available in front of your directory, prefer it
 Sessions, CSRF, roles and the audit log are Orion's own: no provider adds a second session system, and **a provider never
 decides a role** (no role is derived from groups or claims). The API and MCP keys are independent of the web sign-in.
 
+## What the sign-in page offers
+
+- **Local accounts only**: the username and password form.
+- **An OIDC provider (Entra, Google, generic) with no account managed by it yet**: the local form stays first and
+  *Other sign-in methods* holds *Sign in with SSO*. Use it for the first SSO sign-in with automatic creation.
+- **As soon as one active account signs in through that provider**, or is pre-provisioned and awaits its first SSO
+  sign-in, the main *Sign in* button starts SSO and the local (or directory) form moves to *Other sign-in methods*.
+- **LDAP**: the directory form first, local sign-in under *Local account*.
+
+*Other sign-in methods* appears only when something other than local sign-in is configured.
+
 ## Where the settings live (priority rule)
 
 1. **Administration → Authentication** (stored in the database) when it names a provider;

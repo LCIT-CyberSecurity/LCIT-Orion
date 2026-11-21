@@ -7,7 +7,7 @@ import { ErrorNote } from "../components/common";
 import { useI18n, LOCALES } from "../i18n";
 import "../styles/login.css";
 
-interface Providers { local?: boolean; sso: { enabled: boolean; provider?: string }; ldap: { enabled: boolean; name?: string } }
+interface Providers { local?: boolean; sso: { enabled: boolean; provider?: string; primary?: boolean }; ldap: { enabled: boolean; name?: string } }
 type CredentialMethod = "ldap" | "local";
 
 /** Sign-in, laid out like LCIT Sign: introduction panel on the left, sign-in card on the right.
@@ -42,6 +42,8 @@ export default function Login() {
   const ldapEnabled = !!providers?.ldap.enabled;
   const localAvailable = !!providers && providers.local !== false;
   const hasCredentials = ldapEnabled || localAvailable;
+  // SSO leads only once accounts are managed by the identity provider; otherwise it is one of the other methods.
+  const ssoPrimary = ssoEnabled && (!!providers?.sso.primary || !hasCredentials);
   const primaryMethod: CredentialMethod = ldapEnabled ? "ldap" : "local";
   const selectedMethod = credentialMethod ?? primaryMethod;
   const credentialAvailable = selectedMethod === "ldap" ? ldapEnabled : localAvailable;
@@ -98,7 +100,7 @@ export default function Login() {
               {!providers && <p className="hint" role="status">{t("login.loadingMethods")}</p>}
               <ErrorNote error={error} />
 
-              {ssoEnabled && !mustChange && <a className="button button--primary login-sso--primary" href="/api/auth/sso/login">{t("login.submit")}</a>}
+              {ssoPrimary && !mustChange && <a className="button button--primary login-sso--primary" href="/api/auth/sso/login">{t("login.submit")}</a>}
 
               {mustChange && <form className="login-credentials" onSubmit={(event) => void submit(event, primaryMethod)}>
                 <label>{t("login.currentPassword")}<input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus /></label>
@@ -107,7 +109,7 @@ export default function Login() {
                 <button type="submit" className="login-submit">{t("login.changeAndContinue")}</button>
               </form>}
 
-              {!mustChange && providers && ssoEnabled && hasCredentials && <details className="login-methods">
+              {!mustChange && providers && ssoPrimary && hasCredentials && <details className="login-methods">
                 <summary>{t("login.otherMethods")}</summary>
                 {ldapEnabled && localAvailable && <fieldset className="login-method-choice">
                   <legend>{t("login.chooseMethod")}</legend>
@@ -117,9 +119,14 @@ export default function Login() {
                 {credentialAvailable && credentials(selectedMethod)}
               </details>}
 
-              {!mustChange && providers && !ssoEnabled && hasCredentials && <>
+              {!mustChange && providers && !ssoPrimary && hasCredentials && <>
                 {credentials(primaryMethod, true)}
-                {primaryMethod === "ldap" && localAvailable && <details className="login-methods login-methods--fallback">
+                {ssoEnabled && <details className="login-methods">
+                  <summary>{t("login.otherMethods")}</summary>
+                  <a className="button login-sso--secondary" href="/api/auth/sso/login">{t("login.sso")}</a>
+                  {primaryMethod === "ldap" && localAvailable && credentials("local")}
+                </details>}
+                {!ssoEnabled && primaryMethod === "ldap" && localAvailable && <details className="login-methods login-methods--fallback">
                   <summary>{t("login.localSignIn")}</summary>
                   {credentials("local")}
                 </details>}
