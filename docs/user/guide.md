@@ -21,6 +21,9 @@ Everyone signed in can read shared results; only an object's owner (or an operat
    mail-security checks are disabled by default; details and limits are described in [Mail security checks](mail-security.md).
 3. **Run**. The run page shows the current phase (*port discovery*, *TLS analysis*, *evaluating compliance*,
    *generating reports*), elapsed time and — only when reliable — hosts processed. No fake percentage.
+   The Scans page also has a compact activity panel, collapsed by default, that summarizes concurrent runs and
+   recent persisted phase/target events. Open it to follow activity or link to a run; it refreshes with the existing
+   run list and does not launch scans. When counters are not available, Orion says so instead of estimating progress.
 4. **Cancel** your own scan any time: unstarted hosts are skipped and listed, results gathered so far are kept
    (*cancelled*, never counted as compliant).
 5. **Scans → History**: open an execution to review endpoints with grade/compliance/TLS versions/certificate,

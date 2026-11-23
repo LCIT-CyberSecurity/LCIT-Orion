@@ -18,6 +18,7 @@ import { useI18n } from "../i18n";
 import { formatDate, formatDuration } from "../lib/utils";
 import Reports from "./Reports";
 import { DnsScanTargetImport } from "../components/DnsScanTargetImport";
+import { ScanActivityPanel } from "../components/ScanActivityPanel";
 
 const DEFAULT_MAIL_SECURITY: MailSecurityConfig = { enabled: false, checks: { spf: true, dmarc: true, dkim: false, mta_sts: true, tls_rpt: true, dane: false }, dkim_selectors: [] };
 const MAIL_CHECKS = ["spf", "dmarc", "dkim", "mta_sts", "tls_rpt", "dane"] as const;
@@ -172,7 +173,9 @@ export default function Scans() {
   };
   const [editing, setEditing] = useState<Definition | "new" | null>(null);
   const [error, setError] = useState<unknown>();
-  const { data: runs, reload } = useLoad(() => api<Run[]>("/scan-runs", { params: { mine, status } }), [mine, status], 5000);
+  // The same permission-filtered, persisted run feed drives both this history and the activity summary.
+  const { data: runs, reload } = useLoad(() => api<Run[]>("/scan-runs", { params: { mine, limit: "500" } }), [mine], 5000);
+  const visibleRuns = runs?.filter((run) => !status || run.status === status);
   const { data: defs, reload: reloadDefs } = useLoad(() => api<Definition[]>("/scan-definitions"));
 
   async function launch(id: string) {
@@ -237,6 +240,7 @@ export default function Scans() {
     <>
       <PageHeader title={t("nav.scans")} actions={<Button onClick={() => setEditing("new")}><Plus />{t("def.new")}</Button>} />
       <ErrorNote error={error} />
+      <ScanActivityPanel runs={runs ?? []} />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList><TabsTrigger value="scans">{t("nav.scans")}</TabsTrigger><TabsTrigger value="history">{t("scans.history")}</TabsTrigger><TabsTrigger value="reports">{t("nav.reports")}</TabsTrigger></TabsList>
         <TabsContent value="history">
@@ -248,11 +252,11 @@ export default function Scans() {
               <button type="button" aria-pressed={!grouped} className={!grouped ? "active" : ""} onClick={() => setGrouped(false)}>{t("scans.flat")}</button>
             </div>
           </div>
-          <Card>{runs?.length ? (grouped
-            ? <div className="card-body"><GroupedRuns runs={runs} canDelete={atLeast("OPERATOR")} canCancel={(r) => r.initiated_by === user?.id || atLeast("OPERATOR")}
+          <Card>{visibleRuns?.length ? (grouped
+            ? <div className="card-body"><GroupedRuns runs={visibleRuns} canDelete={atLeast("OPERATOR")} canCancel={(r) => r.initiated_by === user?.id || atLeast("OPERATOR")}
                 onRescan={(id) => void launch(id)} onCancel={async (id) => { try { await api(`/scan-runs/${id}/cancel`, { method: "POST" }); void reload(); } catch (e) { setError(e); } }}
                 onDelete={async (id) => { try { await api(`/scan-runs/${id}`, { method: "DELETE" }); void reload(); } catch (e) { setError(e); } }} /></div>
-            : <DataTable rows={runs} rowKey={(r) => r.id} columns={runColumns} defaultSort={{ key: "date", dir: "desc" }} />) : <Empty>{t("scans.none")}</Empty>}</Card>
+            : <DataTable rows={visibleRuns} rowKey={(r) => r.id} columns={runColumns} defaultSort={{ key: "date", dir: "desc" }} />) : <Empty>{t("scans.none")}</Empty>}</Card>
         </TabsContent>
         <TabsContent value="scans">
           {requestedDefinition && definitionNote && <Note tone="warning" className="mb-3">{t(definitionNote === "readOnly" ? "def.linkReadOnly" : "def.linkNotFound")}</Note>}
