@@ -22,4 +22,8 @@ def test_active_run_exposes_a_plan_and_a_finished_one_does_not(user, operator, c
     assert plan["tls_checks"] == 2 and plan["policies"] and plan["formats"]      # timeout_seconds is a setting, not a check
     final = wait_final(user, run_id)
     assert final["status"] in ("completed", "partial") and final["plan"] is None
+    detail = user.get(f"/api/scan-runs/{run_id}").json()
+    activity = detail["progress"]["events"]
+    assert any(item["event"] == "phase" and item["at"] for item in activity)
+    assert activity[-1]["event"] == "finished" and activity[-1]["status"] == final["status"]
     assert "config_snapshot" not in user.get(f"/api/scan-runs/{run_id}").json()   # the plan is not a way to read the snapshot

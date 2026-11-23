@@ -25,6 +25,32 @@ CANCEL_GRACE_SECONDS = 20
 HEARTBEAT_SECONDS = 10
 
 
+def apply_activity_event(progress: dict, state: dict, event: dict, at: datetime | None = None) -> None:
+    """Project a child event into a small, safe, persisted activity record."""
+    event_name = event.get("event")
+    if event_name == "phase":
+        phase = str(event.get("phase", ""))[:40]
+        if phase and phase != state["phase"]:
+            state["phase"] = phase
+            progress["events"].append({"event": "phase", "phase": phase,
+                                      "at": (at or datetime.now(UTC)).isoformat()})
+        hosts = event.get("hosts")
+        if isinstance(hosts, list):
+            progress["hosts_total"] = len(hosts)
+            progress["hosts_done"] = 0
+    elif event_name == "host_done":
+        done, total = event.get("hosts_done"), event.get("hosts_total")
+        if isinstance(done, int) and not isinstance(done, bool) and done >= 0:
+            progress["hosts_done"] = done
+        if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
+            progress["hosts_total"] = total
+        progress["events"].append({"event": "target_done", "phase": state["phase"],
+                                    "target_index": progress["hosts_done"],
+                                    "hosts_done": progress["hosts_done"], "hosts_total": progress["hosts_total"],
+                                    "at": (at or datetime.now(UTC)).isoformat()})
+    progress["events"][:] = progress["events"][-30:]
+
+
 def run_subprocess(settings: Settings, session_factory, run_id) -> None:
     """Supervise one scan: heartbeat, progress events, cancellation, timeout, partial results."""
     storage = Path(settings.storage_root)
@@ -48,7 +74,7 @@ def run_subprocess(settings: Settings, session_factory, run_id) -> None:
         import threading
 
         events, stderr_lines = [], []
-        progress = {"hosts_total": None, "hosts_done": 0}
+        progress = {"hosts_total": None, "hosts_done": 0, "events": []}
         state = {"phase": "starting"}
 
         def read_stdout():
@@ -57,12 +83,7 @@ def run_subprocess(settings: Settings, session_factory, run_id) -> None:
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if event.get("event") == "phase":
-                    state["phase"] = event["phase"]
-                    if event.get("hosts") and event["phase"] == "tls_scan":
-                        progress["hosts_total"] = len(event["hosts"])
-                elif event.get("event") == "host_done":
-                    progress["hosts_done"] += 1
+                apply_activity_event(progress, state, event)
 
         threads = [threading.Thread(target=read_stdout, daemon=True),
                    threading.Thread(target=lambda: stderr_lines.extend(child.stderr), daemon=True)]
@@ -77,7 +98,7 @@ def run_subprocess(settings: Settings, session_factory, run_id) -> None:
             with session_factory() as db:
                 run = db.get(ScanRun, run_id)
                 run.heartbeat_at, run.phase = datetime.now(UTC), state["phase"]
-                run.progress = dict(progress) if progress["hosts_total"] else None
+                run.progress = {**progress, "phase": state["phase"], "events": list(progress["events"])}
                 want_cancel = run.cancel_requested
                 db.commit()
             over_time = time.monotonic() - start > settings.max_scan_duration_seconds
@@ -103,11 +124,17 @@ def run_subprocess(settings: Settings, session_factory, run_id) -> None:
                 outcome = json.loads(outcome_path.read_text())
                 status = runs.final_status(outcome, cancelled, timed_out)
                 runs.persist_results(db, run, outcome, status, storage)
+                run.progress = {**progress, "phase": state["phase"], "events": list(progress["events"])}
+                run.progress["events"].append({"event": "finished", "status": status, "at": datetime.now(UTC).isoformat()})
+                run.progress["events"] = run.progress["events"][-30:]
             else:
                 run.status = "expired" if timed_out else ("cancelled" if cancelled else "failed")
                 run.finished_at = datetime.now(UTC)
                 run.error = scrub_text("".join(stderr_lines)[-2000:]) or f"engine exited with code {child.returncode}"
                 run.duration_seconds = round(time.monotonic() - start, 2)
+                run.progress = {**progress, "phase": state["phase"], "events": list(progress["events"])}
+                run.progress["events"].append({"event": "finished", "status": run.status, "at": datetime.now(UTC).isoformat()})
+                run.progress["events"] = run.progress["events"][-30:]
                 from orion_app.services import audit
 
                 audit.record(db, f"scan.{run.status}", actor_label="worker", resource_type="scan_run", resource_id=run.id,
