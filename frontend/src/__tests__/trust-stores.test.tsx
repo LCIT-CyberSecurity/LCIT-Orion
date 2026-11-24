@@ -173,7 +173,9 @@ describe("results: PKI trust", () => {
     expect(screen.getByText("Client A - PKI interne")).toBeInTheDocument();
     expect(screen.getByText(/SHA-256 abababababababab/)).toBeInTheDocument();
     expect(screen.getByText("Private authority")).toBeInTheDocument();
-    expect(screen.getByText("Not trusted")).toBeInTheDocument();
+    const untrustedBadge = screen.getByText("Not trusted");
+    expect(untrustedBadge).toHaveClass("badge--warning");
+    expect(untrustedBadge).not.toHaveClass("badge--danger");
     expect(screen.getByText("Public authority")).toBeInTheDocument();
     expect(screen.getByText("FAIL")).toBeInTheDocument();           // name check shown next to a trusted chain
     expect(screen.getByText("Revoked")).toBeInTheDocument();        // never hidden by the chain verdict

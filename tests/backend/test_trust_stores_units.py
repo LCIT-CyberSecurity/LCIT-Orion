@@ -17,7 +17,8 @@ from orion_app.services import trust_stores as svc
 from tls_scanner.config import parse_inline_stores
 from tls_scanner.models import ConfigError
 from tls_scanner.pki import (
-    TRUST_PRIVATE, TRUST_UNTRUSTED, PeerCertificateChain, load_inline_store, load_trust_stores, validate_peer_chain,
+    TRUST_PRIVATE, TRUST_UNTRUSTED, PeerCertificateChain, load_inline_store, load_trust_stores,
+    openssl_failure_reason, validate_peer_chain,
 )
 
 NOW = dt.datetime.now(dt.UTC)
@@ -197,6 +198,16 @@ def store(label, anchors, intermediates=()):
 
 def verdict(chain, *stores):
     return validate_peer_chain(PeerCertificateChain(tuple(chain)), tuple(stores))
+
+
+def test_openssl_failure_reason_uses_cause_without_temporary_path():
+    output = (
+        "CN = deco-p92.home\n"
+        "error 20 at 0 depth lookup: unable to get local issuer certificate\n"
+        "error /tmp/orion-pki-abc123/leaf.pem: verification failed\n"
+    )
+    assert openssl_failure_reason(output) == "unable to get local issuer certificate"
+    assert openssl_failure_reason("error /tmp/orion-pki-abc123/leaf.pem: verification failed") == "certificate chain validation failed"
 
 
 def test_A_root_absent_is_untrusted(pki):

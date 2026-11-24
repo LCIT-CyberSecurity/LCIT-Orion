@@ -342,6 +342,7 @@ def write_certificates(path: Path, certificates: Iterable[x509.Certificate]) -> 
 
 
 OPENSSL_REASON_RE = re.compile(r"error \d+ at \d+ depth lookup: (.+)")
+OPENSSL_GENERIC_FAILURE_RE = re.compile(r"^error .+: verification failed$", re.IGNORECASE)
 
 
 def openssl_failure_reason(output: str) -> str:
@@ -351,7 +352,8 @@ def openssl_failure_reason(output: str) -> str:
         match = OPENSSL_REASON_RE.search(line)
         if match:
             return match.group(1).strip()
-    return lines[-1] if lines else "certificate chain validation failed"
+    details = [line for line in lines if not OPENSSL_GENERIC_FAILURE_RE.fullmatch(line)]
+    return details[-1] if details else "certificate chain validation failed"
 
 
 def openssl_verify_chain(chain: tuple[x509.Certificate, ...], store: LoadedTrustStore) -> tuple[bool, str]:
@@ -379,9 +381,7 @@ def openssl_verify_chain(chain: tuple[x509.Certificate, ...], store: LoadedTrust
     if result.returncode == 0:
         return True, ""
     error = (result.stderr or result.stdout or "certificate chain validation failed").strip()
-    if store.store_type == "inline":  # administered stores explain the cause; the historical stores keep their exact historical message
-        return False, openssl_failure_reason(error)
-    return False, error.splitlines()[-1] if error else "certificate chain validation failed"
+    return False, openssl_failure_reason(error)
 
 
 def verify_signature(child: x509.Certificate, issuer: x509.Certificate) -> bool:
