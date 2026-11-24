@@ -227,3 +227,21 @@ def findings_from_observations(observations: list[dict[str, Any]], policies: lis
         item["evidence"] = "; ".join(f"{endpoint}: {', '.join(sorted(offers))}" for endpoint, offers in sorted(by_endpoint.items()))
         findings.append(item)
     return sorted(findings, key=lambda f: f["finding_id"])
+
+
+def ssh_security_grade(observation: dict[str, Any], policies: list[dict[str, Any]]) -> str | None:
+    """Summarize an observed server relative to its selected policy and existing finding severities."""
+    if observation.get("status") != "observed" or not policies:
+        return None
+    verdict = observation.get("verdict")
+    if verdict == "compliant":
+        return "A"
+    if verdict != "non_compliant":
+        return None
+    endpoint = f"{observation.get('target', '')}:{observation.get('port', '')}/tcp"
+    severities = [finding["severity"] for finding in findings_from_observations([observation], policies)
+                  if endpoint in finding["affected_endpoint_ids"]]
+    for severity, grade in (("critical", "F"), ("high", "D"), ("medium", "B"), ("low", "C")):
+        if severity in severities:
+            return grade
+    return None

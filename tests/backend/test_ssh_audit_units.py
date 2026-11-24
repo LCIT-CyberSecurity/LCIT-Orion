@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 from types import SimpleNamespace
@@ -131,6 +132,21 @@ def test_ssh_scan_reports_nothing_for_ports_without_ssh_server(monkeypatch):
     observations, targets = child.scan_ssh(config, cancel, lambda name, data: events.append((name, data)))
     assert [o["target"] for o in observations] == ["192.0.2.2"]
     assert observations[0]["verdict"] == "compliant"
+    assert observations[0]["evidence"]["security_grade"] == "A"
     assert targets == ["192.0.2.1", "192.0.2.2"]
     assert calls == ["192.0.2.1", "192.0.2.1", "192.0.2.2"]  # one retry for the silent port, as configured
+
+
+def test_ssh_reports_show_the_security_grade_in_all_formats(tmp_path):
+    from orion_app.workers.child import write_ssh_reports
+
+    observation = {"target": "192.0.2.1", "port": 22, "status": "observed", "verdict": "non_compliant",
+                   "banner": "SSH-2.0-test", "algorithms": {"key_exchange": ["curve25519-sha256"], "encryption": ["aes128-cbc"], "mac": [], "host_key": []},
+                   "fingerprints": {}, "evidence": {"security_grade": "D"}}
+    files = write_ssh_reports([observation], tmp_path, "run-1", ["csv", "md", "html"])
+    assert len(files) == 3
+    reports = {Path(path).suffix: Path(path).read_text(encoding="utf-8") for path in files}
+    assert "security_grade" in reports[".csv"] and ",D," in reports[".csv"]
+    assert "| Grade |" in reports[".md"] and "| D |" in reports[".md"]
+    assert "Security Grade" in reports[".html"] and "D" in reports[".html"]
     assert [d["hosts_done"] for name, d in events if name == "host_done"] == [1, 2]

@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 from orion_app.database import Base
 from orion_app.models import RunFinding, RunSshObservation, ScanDefinition, ScanRun
 from orion_app.services import comparison, dashboard, runs
-from orion_app.services.ssh_audit import findings_from_observations
+from orion_app.services.ssh_audit import findings_from_observations, ssh_security_grade
 
 ROOT = Path(__file__).resolve().parents[2]
 ANSSI_SSH = {"name": "ANSSI SSH", "content": yaml.safe_load(
@@ -35,6 +35,21 @@ def by_id(findings: list[dict]) -> dict[str, dict]:
 
 def test_compliant_server_produces_no_finding():
     assert findings_from_observations([observed("192.0.2.1")], [ANSSI_SSH]) == []
+
+
+def test_ssh_grade_summarizes_selected_policy_findings_without_grading_unknowns():
+    compliant = {**observed("192.0.2.1"), "verdict": "compliant"}
+    medium = {**observed("192.0.2.2", kex=("curve25519-sha256", "sntrup761x25519-sha512")), "verdict": "non_compliant"}
+    weak = {**observed("192.0.2.3", enc=("aes128-cbc",)), "verdict": "non_compliant"}
+    timeout = {"target": "192.0.2.4", "port": 22, "status": "timeout", "verdict": "indeterminate"}
+    incomplete = {"target": "192.0.2.5", "port": 22, "status": "observed", "verdict": "indeterminate", "algorithms": {}}
+
+    assert ssh_security_grade(compliant, [ANSSI_SSH]) == "A"
+    assert ssh_security_grade(medium, [ANSSI_SSH]) == "B"
+    assert ssh_security_grade(weak, [ANSSI_SSH]) == "D"
+    assert ssh_security_grade(timeout, [ANSSI_SSH]) is None
+    assert ssh_security_grade(incomplete, [ANSSI_SSH]) is None
+    assert ssh_security_grade(compliant, []) is None
 
 
 def test_default_openssh_splits_weak_offers_from_strong_ones_outside_the_policy():

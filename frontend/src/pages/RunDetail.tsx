@@ -16,6 +16,7 @@ import { PkiTrust } from "../components/PkiTrust";
 import { ScanProgress } from "../components/ScanProgress";
 import { useI18n } from "../i18n";
 import type { TlsCheckResult } from "../lib/tlsChecks";
+import { sshGrade } from "../lib/sshGrade";
 import { formatDate, formatDuration } from "../lib/utils";
 
 const SEVERITY_RANK: Record<string, number> = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
@@ -37,6 +38,7 @@ function endpointColumns(t: (key: never) => string): Column<Endpoint>[] {
 
 const GRADE_ORDER = ["A+", "A", "B", "C", "D", "E", "F"];
 const gradeRank = (grade?: string) => { const index = GRADE_ORDER.indexOf(grade ?? ""); return index < 0 ? GRADE_ORDER.length : index; };
+const sshGradeRank = (grade: string | null) => { const index = ["A", "B", "C", "D", "F"].indexOf(grade ?? ""); return index < 0 ? 5 : index; };
 
 type TlsCheckRow = { endpoint: string; check: TlsCheckResult };
 const TLS_STATUS_TONE: Record<string, "success" | "danger" | "warning" | "neutral"> = { PASS: "success", FAIL: "danger", ERROR: "danger", INCONCLUSIVE: "warning", NOT_TESTED: "warning", NOT_APPLICABLE: "neutral" };
@@ -188,12 +190,12 @@ export default function RunDetail() {
       </Card>}
       {(run.control_type === "ipsec" || run.control_type === "multi") && <IpsecObservations observations={run.ipsec_observations ?? []} />}
       {!!run.ssh_observations?.length && <Card className="mb-6"><CardHeader><CardTitle>SSH audit</CardTitle></CardHeader>
-        <p className="px-5 pb-3 text-xs text-muted">Unauthenticated protocol observations from ssh-audit; authentication and rate tests are not performed.</p>
+        <p className="px-5 pb-3 text-xs text-muted">{t("ssh.gradeHint" as never)} {t("ssh.auditLimits" as never)}</p>
         <DataTable rows={run.ssh_observations} rowKey={(r) => `${r.target}:${r.port}`} columns={[
           { key: "target", header: "Target", values: (r) => [r.target], render: (r) => r.target },
           { key: "port", header: "TCP", values: (r) => [String(r.port)], render: (r) => r.port },
           { key: "status", header: "Probe", values: (r) => [r.status], render: (r) => r.status },
-          { key: "verdict", header: "Policy", values: (r) => [r.verdict], render: (r) => <Badge tone={r.verdict === "compliant" ? "success" : r.verdict === "non_compliant" ? "danger" : "warning"}>{r.verdict}</Badge> },
+          { key: "grade", header: t("ssh.grade" as never), values: (r) => [sshGrade(r, run.findings) ?? "NOT_EVALUATED"], sort: (r) => sshGradeRank(sshGrade(r, run.findings)), render: (r) => <GradeBadge grade={sshGrade(r, run.findings)} title={t("ssh.gradeHint" as never)} /> },
           { key: "banner", header: "Banner", values: (r) => [r.banner], render: (r) => <code className="text-xs">{r.banner || "—"}</code> },
           { key: "fingerprints", header: "Host key fingerprints", values: (r) => Object.values(r.fingerprints).map(String), render: (r) => <code className="break-all text-xs">{Object.entries(r.fingerprints).map(([key, value]) => `${key}: ${String(value)}`).join(" · ") || "—"}</code> },
           { key: "algorithms", header: "Observed algorithms", values: (r) => Object.values(r.algorithms).flat(), render: (r) => <span className="text-xs">{Object.entries(r.algorithms).flatMap(([k, v]) => v.map((x) => `${k}: ${x}`)).join(" · ") || "Indeterminate"}</span> },

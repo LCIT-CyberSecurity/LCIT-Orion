@@ -20,7 +20,7 @@ from orion_app.services.planner import job_from_snapshot
 from orion_app.services.quic_scan import scan as scan_quic, write_csv as write_quic_report
 from orion_app.services.service_identification import identify_services
 from orion_app.services.service_identification import write_report as write_service_report
-from orion_app.services.ssh_audit import audit_target, evaluate_ssh_policy
+from orion_app.services.ssh_audit import audit_target, evaluate_ssh_policy, ssh_security_grade
 from tls_scanner.runner import execute_scan
 
 
@@ -57,7 +57,9 @@ def scan_ssh(config: dict, cancel, emit):
             values = set(verdicts.values())
             observation.update({"target": target, "port": int(port), "verdict": (
                 "non_compliant" if "non_compliant" in values else "compliant" if values == {"compliant"} else "indeterminate")})
-            observation.setdefault("evidence", {})["policy_verdicts"] = verdicts
+            evidence = observation.setdefault("evidence", {})
+            evidence["policy_verdicts"] = verdicts
+            evidence["security_grade"] = ssh_security_grade(observation, policies)
             observations.append(observation)
             emit("host_done", {"target": target, "hosts_done": done, "hosts_total": total})
         if cancel.is_set():
@@ -69,10 +71,10 @@ def write_ssh_reports(observations: list[dict], export_dir: Path, run_id: str, f
     root = export_dir / run_id
     root.mkdir(parents=True, exist_ok=True)
     files = []
-    fields = ("target", "port", "status", "verdict", "banner", "protocol_versions", "key_exchange", "encryption", "mac", "host_key", "fingerprints")
+    fields = ("target", "port", "status", "security_grade", "banner", "protocol_versions", "key_exchange", "encryption", "mac", "host_key", "fingerprints")
     for fmt in formats:
         path = root / f"ssh-results.{fmt}"
-        rows = [{"target": x["target"], "port": x["port"], "status": x["status"], "verdict": x["verdict"], "banner": x.get("banner", ""),
+        rows = [{"target": x["target"], "port": x["port"], "status": x["status"], "security_grade": (x.get("evidence") or {}).get("security_grade") or "—", "banner": x.get("banner", ""),
                  **{k: ", ".join((x.get("algorithms") or {}).get(src, [])) for k, src in (("protocol_versions", "protocol_versions"), ("key_exchange", "key_exchange"), ("encryption", "encryption"), ("mac", "mac"), ("host_key", "host_key"))},
                  "fingerprints": json.dumps(x.get("fingerprints") or {}, sort_keys=True)}
                 for x in observations]
@@ -81,15 +83,15 @@ def write_ssh_reports(observations: list[dict], export_dir: Path, run_id: str, f
             writer = csv.DictWriter(stream, fieldnames=fields); writer.writeheader(); writer.writerows(rows)
             path.write_text(stream.getvalue(), encoding="utf-8")
         elif fmt == "md":
-            lines = ["# SSH audit results", "", "> Unauthenticated protocol audit. No password, key or rate-limit tests were performed.", "",
-                     "| Target | Port | Status | Verdict | Banner | Algorithms |", "|---|---:|---|---|---|---|"]
-            lines.extend(f"| {r['target']} | {r['port']} | {r['status']} | {r['verdict']} | {r['banner']} | {', '.join(r['key_exchange'] + r['encryption'] + r['mac'] + r['host_key'])} |" for r in rows)
+            lines = ["# SSH audit results", "", "> Note is relative to the selected SSH policy and existing finding severity. Audit is unauthenticated; no password, key or rate-limit tests were performed.", "",
+                     "| Target | Port | Status | Grade | Banner | Algorithms |", "|---|---:|---|---:|---|---|"]
+            lines.extend(f"| {r['target']} | {r['port']} | {r['status']} | {r['security_grade']} | {r['banner']} | {', '.join(r['key_exchange'] + r['encryption'] + r['mac'] + r['host_key'])} |" for r in rows)
             path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         elif fmt == "html":
             import html
             head = "".join(f"<th>{html.escape(k.replace('_', ' ').title())}</th>" for k in fields)
             body = "".join("<tr>" + "".join(f"<td>{html.escape(str(r.get(k, '')))}</td>" for k in fields) + "</tr>" for r in rows)
-            path.write_text("<!doctype html><meta charset='utf-8'><title>SSH audit</title><h1>SSH audit results</h1><p>Unauthenticated protocol audit; no credentials or rate tests were used.</p><table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>", encoding="utf-8")
+            path.write_text("<!doctype html><meta charset='utf-8'><title>SSH audit</title><h1>SSH audit results</h1><p>Grade is relative to the selected SSH policy and existing finding severity. Unauthenticated protocol audit; no credentials or rate tests were used.</p><table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>", encoding="utf-8")
         else:
             continue
         files.append(str(path))
