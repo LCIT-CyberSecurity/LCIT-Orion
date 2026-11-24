@@ -15,7 +15,7 @@ import sys
 import threading
 from pathlib import Path
 
-from orion_app.services.ipsec import evaluate_policy, probe
+from orion_app.services.ipsec import evaluate_policy, probe_targets
 from orion_app.services.planner import job_from_snapshot
 from orion_app.services.quic_scan import scan as scan_quic, write_csv as write_quic_report
 from orion_app.services.service_identification import identify_services
@@ -100,30 +100,21 @@ def scan_ipsec(config: dict, targets: list[str], export_dir: Path, run_id: str, 
     """Run bounded IKE probes and keep the observations separate from TLS grades."""
     ike = config["ike"]
     policies = config.get("policies", [])
-    observations = []
     total = len(targets) * len(ike["versions"]) * len(ike["ports"])
-    done = 0
-    for target in targets:
-        for version in ike["versions"]:
-            for port in ike["ports"]:
-                if cancel.is_set():
-                    break
-                emit("phase", {"phase": "ipsec_probe", "hosts": targets})
-                observation = probe(target, version, port, ike.get("timeout_ms", 1000), ike.get("retries", 0),
-                                    ike.get("nat_t", True), ike.get("ikev1_transforms", []))
-                verdicts = {p["name"]: evaluate_policy(observation, p["content"]) for p in policies}
-                values = set(verdicts.values())
-                observation["verdict"] = ("non_compliant" if "non_compliant" in values else
-                                           "compliant" if values == {"compliant"} else "indeterminate")
-                observation["evidence"]["policy_verdicts"] = verdicts
-                observation["target"] = target
-                observations.append(observation)
-                done += 1
-                emit("host_done", {"target": target, "hosts_done": done, "hosts_total": total})
-            if cancel.is_set():
-                break
-        if cancel.is_set():
-            break
+    emit("phase", {"phase": "ipsec_probe", "hosts": targets})
+    observations = probe_targets(
+        targets, ike["versions"], ike["ports"], timeout_ms=ike.get("timeout_ms", 1000),
+        retries=ike.get("retries", 0), nat_t=ike.get("nat_t", True),
+        ikev1_transforms=ike.get("ikev1_transforms", []), max_parallelism=ike.get("max_parallelism", 4),
+        cancel=cancel, on_complete=lambda target, done, _total: emit(
+            "host_done", {"target": target, "hosts_done": done, "hosts_total": total}),
+    )
+    for observation in observations:
+        verdicts = {p["name"]: evaluate_policy(observation, p["content"]) for p in policies}
+        values = set(verdicts.values())
+        observation["verdict"] = ("non_compliant" if "non_compliant" in values else
+                                   "compliant" if values == {"compliant"} else "indeterminate")
+        observation.setdefault("evidence", {})["policy_verdicts"] = verdicts
 
     root = export_dir / run_id
     root.mkdir(parents=True, exist_ok=True)
@@ -190,31 +181,23 @@ def main(argv: list[str]) -> int:
     if payload["snapshot"].get("control_type") == "ipsec":
         snapshot = payload["snapshot"]
         ike = snapshot["ike"]
-        observations = []
         targets = sorted({target for p in snapshot["passes"] for target in p["targets"]})
         total = len(targets) * len(ike["versions"]) * len(ike["ports"])
-        done = 0
-        for target in targets:
-            for version in ike["versions"]:
-                for port in ike["ports"]:
-                    if cancel.is_set():
-                        break
-                    emit("phase", {"phase": "ipsec_probe", "hosts": targets})
-                    observation = probe(target, version, port, ike.get("timeout_ms", 1000), ike.get("retries", 0),
-                                        ike.get("nat_t", True), ike.get("ikev1_transforms", []))
-                    verdicts = {p["name"]: evaluate_policy(observation, p["content"]) for p in snapshot["policies"]}
-                    values = set(verdicts.values())
-                    observation["verdict"] = ("non_compliant" if "non_compliant" in values else
-                                               "compliant" if values == {"compliant"} else "indeterminate")
-                    observation["evidence"]["policy_verdicts"] = verdicts
-                    observation["target"] = target
-                    observations.append(observation)
-                    done += 1
-                    emit("host_done", {"target": target, "hosts_done": done, "hosts_total": total})
-                if cancel.is_set():
-                    break
-            if cancel.is_set():
-                break
+        emit("phase", {"phase": "ipsec_probe", "hosts": targets})
+        observations = probe_targets(
+            targets, ike["versions"], ike["ports"], timeout_ms=ike.get("timeout_ms", 1000),
+            retries=ike.get("retries", 0), nat_t=ike.get("nat_t", True),
+            ikev1_transforms=ike.get("ikev1_transforms", []),
+            max_parallelism=ike.get("max_parallelism", 4), cancel=cancel,
+            on_complete=lambda target, done, _total: emit(
+                "host_done", {"target": target, "hosts_done": done, "hosts_total": total}),
+        )
+        for observation in observations:
+            verdicts = {p["name"]: evaluate_policy(observation, p["content"]) for p in snapshot["policies"]}
+            values = set(verdicts.values())
+            observation["verdict"] = ("non_compliant" if "non_compliant" in values else
+                                       "compliant" if values == {"compliant"} else "indeterminate")
+            observation.setdefault("evidence", {})["policy_verdicts"] = verdicts
         root = Path(payload["export_dir"]) / payload["run_id"]
         root.mkdir(parents=True, exist_ok=True)
         written = []

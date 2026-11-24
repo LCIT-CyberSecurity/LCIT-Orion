@@ -453,6 +453,8 @@ export const fr: Messages = {
   "run.openHtml": "Ouvrir le rapport HTML",
   "run.partial": "Ce scan est partiel : certaines cibles ou certains contrôles n'ont pas abouti.",
   "ipsec.results": "Observations VPN IPsec / IKE",
+  "ipsec.parallelism": "Sondes simultanées (1–16)",
+  "ipsec.parallelismHint": "La valeur par défaut est 4. Une valeur plus élevée accélère les scans de cibles silencieuses, avec davantage de charge réseau. ",
   "service.title": "Contrôles complémentaires",
   "service.enable": "Identification des services (Nmap -sV)",
   "service.scanHint": "Désactivée par défaut. Les sondes restent limitées au périmètre du scan et aux ports TCP ouverts observés.",

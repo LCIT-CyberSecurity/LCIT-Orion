@@ -33,7 +33,8 @@ SSH_POLICY_FILE = ANSSI_POLICY_FILE.parent / "anssi_ssh_encryption_policy.yaml"
 GENERIC_PROFILE_NAME = "Standard (TLS, IPsec, SSH)"
 GENERIC_PROFILE_DESCRIPTION = ("Multi-technology profile: the Standard TLS settings, IKEv2 on UDP 500/4500 and a quick SSH audit on TCP 22. "
                                "Tick the technologies in each scan definition.")
-GENERIC_IPSEC = {"versions": ["IKEv2"], "ports": [500, 4500], "nat_t": True, "timeout_ms": 1000, "retries": 0, "aggressive_mode": False}
+GENERIC_IPSEC = {"versions": ["IKEv2"], "ports": [500, 4500], "nat_t": True, "timeout_ms": 1000,
+                 "retries": 0, "max_parallelism": 4, "aggressive_mode": False}
 GENERIC_SSH = {"ports": [22], "timeout_seconds": 2, "preset": "quick", "max_targets": 256, "retries": 0}
 
 

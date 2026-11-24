@@ -4,14 +4,16 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
-from typing import Any
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from threading import Event
+from typing import Any, Callable
 
 
 def validate_ipsec_profile(content: dict[str, Any]) -> None:
     if set(content) != {"ike"} or not isinstance(content.get("ike"), dict):
         raise ValueError("IPsec profiles must contain only the ike section")
     ike = content["ike"]
-    if set(ike) - {"versions", "ports", "nat_t", "timeout_ms", "retries", "aggressive_mode", "ikev1_transforms"}:
+    if set(ike) - {"versions", "ports", "nat_t", "timeout_ms", "retries", "aggressive_mode", "ikev1_transforms", "max_parallelism"}:
         raise ValueError("unsupported IPsec profile fields")
     if (not isinstance(ike.get("versions"), list) or not ike["versions"]
             or not all(isinstance(v, str) for v in ike["versions"]) or set(ike["versions"]) - {"IKEv1", "IKEv2"}):
@@ -32,6 +34,9 @@ def validate_ipsec_profile(content: dict[str, Any]) -> None:
         raise ValueError("timeout_ms must be between 100 and 5000")
     if not isinstance(ike.get("retries", 0), int) or isinstance(ike.get("retries", 0), bool) or not 0 <= ike.get("retries", 0) <= 2:
         raise ValueError("retries must be between 0 and 2")
+    parallelism = ike.get("max_parallelism", 4)
+    if not isinstance(parallelism, int) or isinstance(parallelism, bool) or not 1 <= parallelism <= 16:
+        raise ValueError("max_parallelism must be an integer between 1 and 16")
     if ike.get("aggressive_mode", False):
         raise ValueError("IKEv1 aggressive mode is not supported")
     transforms = ike.get("ikev1_transforms", [])
@@ -163,3 +168,50 @@ def probe(target: str, version: str, port: int, timeout_ms: int = 1000, retries:
     if observation["status"] == "timeout" and "Received 0 response" in result.stdout:
         observation["status"] = "indeterminate"
     return observation
+
+
+def probe_targets(targets: list[str], versions: list[str], ports: list[int], *, timeout_ms: int = 1000,
+                  retries: int = 0, nat_t: bool = True, ikev1_transforms: list[str] | None = None,
+                  max_parallelism: int = 4, cancel: Event | None = None,
+                  on_complete: Callable[[str, int, int], None] | None = None,
+                  probe_fn: Callable[..., dict[str, Any]] = probe) -> list[dict[str, Any]]:
+    """Run a bounded number of independent IKE probes and return observations in input order."""
+    if not 1 <= max_parallelism <= 16:
+        raise ValueError("max_parallelism must be between 1 and 16")
+
+    tasks = ((target, version, port) for target in targets for version in versions for port in ports)
+    total = len(targets) * len(versions) * len(ports)
+    pending: set[Future[tuple[int, str, dict[str, Any]]]] = set()
+    completed: list[tuple[int, dict[str, Any]]] = []
+    next_index = 0
+    done_count = 0
+
+    def run_one(index: int, target: str, version: str, port: int) -> tuple[int, str, dict[str, Any]]:
+        observation = probe_fn(target, version, port, timeout_ms, retries, nat_t, ikev1_transforms)
+        observation["target"] = target
+        return index, target, observation
+
+    with ThreadPoolExecutor(max_workers=max_parallelism, thread_name_prefix="ike-probe") as executor:
+        exhausted = False
+        while pending or not exhausted:
+            while not exhausted and not (cancel and cancel.is_set()) and len(pending) < max_parallelism:
+                try:
+                    target, version, port = next(tasks)
+                except StopIteration:
+                    exhausted = True
+                    break
+                future = executor.submit(run_one, next_index, target, version, port)
+                pending.add(future)
+                next_index += 1
+            if not pending:
+                break
+            finished, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in finished:
+                pending.remove(future)
+                index, target, observation = future.result()
+                completed.append((index, observation))
+                done_count += 1
+                if on_complete:
+                    on_complete(target, done_count, total)
+
+    return [observation for _, observation in sorted(completed)]

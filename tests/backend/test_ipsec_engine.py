@@ -1,6 +1,8 @@
 from types import SimpleNamespace
+from threading import Barrier, Event, Lock, Thread
+import time
 
-from orion_app.services.ipsec import evaluate_policy, parse_ike_scan, probe, validate_ipsec_policy, validate_ipsec_profile
+from orion_app.services.ipsec import evaluate_policy, parse_ike_scan, probe, probe_targets, validate_ipsec_policy, validate_ipsec_profile
 
 
 POLICY = {"allowed_versions": ["IKEv2"], "allowed_encryption": ["AES_GCM_16"], "allowed_integrity": ["NONE"],
@@ -16,6 +18,74 @@ def test_profile_validation_requires_safe_udp_ike_configuration():
         assert "aggressive" in str(error)
     else:
         raise AssertionError("Aggressive Mode must be disabled")
+
+
+def test_profile_parallelism_is_bounded_and_legacy_profiles_keep_default():
+    validate_ipsec_profile({"ike": {"versions": ["IKEv2"], "ports": [500]}})
+    for invalid in (0, 17, True, 1.5, "4"):
+        try:
+            validate_ipsec_profile({"ike": {"versions": ["IKEv2"], "ports": [500], "max_parallelism": invalid}})
+        except ValueError as error:
+            assert "max_parallelism" in str(error)
+        else:
+            raise AssertionError(f"Invalid max_parallelism accepted: {invalid!r}")
+
+
+def test_probe_targets_respects_parallel_limit_and_keeps_input_order():
+    for limit in (1, 3):
+        barrier = Barrier(limit) if limit > 1 else None
+        lock = Lock()
+        active = 0
+        maximum = 0
+        started_count = 0
+
+        def fake_probe(target, version, port, *_):
+            nonlocal active, maximum, started_count
+            with lock:
+                active += 1
+                maximum = max(maximum, active)
+                started_count += 1
+                join_first_wave = barrier is not None and started_count <= limit
+            if join_first_wave:
+                barrier.wait(timeout=3)
+            time.sleep(0.005)
+            with lock:
+                active -= 1
+            return {"status": "timeout", "target": target, "port": port, "ike_version": version}
+
+        results = probe_targets(["slow", "fast", "third", "fourth"], ["IKEv2"], [500], max_parallelism=limit,
+                                probe_fn=fake_probe)
+        assert maximum == limit
+        assert [item["target"] for item in results] == ["slow", "fast", "third", "fourth"]
+
+
+def test_probe_targets_cancellation_does_not_submit_more_work():
+    cancel, started, release = Event(), Event(), Event()
+    both_started = Barrier(2)
+    calls = 0
+    lock = Lock()
+    result = []
+
+    def fake_probe(target, version, port, *_):
+        nonlocal calls
+        with lock:
+            calls += 1
+        both_started.wait(timeout=4)
+        started.set()
+        release.wait(timeout=3)
+        return {"status": "timeout", "target": target, "port": port, "ike_version": version}
+
+    thread = Thread(target=lambda: result.extend(
+        probe_targets([str(i) for i in range(20)], ["IKEv2"], [500], max_parallelism=2, cancel=cancel,
+                      probe_fn=fake_probe)))
+    thread.start()
+    assert started.wait(timeout=2)
+    cancel.set()
+    release.set()
+    thread.join(timeout=3)
+    assert not thread.is_alive()
+    assert calls == 2
+    assert len(result) == 2
 
 
 def test_ipsec_policy_schema_is_separate_and_explicit():
