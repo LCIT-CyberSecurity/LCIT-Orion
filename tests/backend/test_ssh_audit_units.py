@@ -135,6 +135,7 @@ def test_ssh_scan_reports_nothing_for_ports_without_ssh_server(monkeypatch):
     assert observations[0]["evidence"]["security_grade"] == "A"
     assert targets == ["192.0.2.1", "192.0.2.2"]
     assert calls == ["192.0.2.1", "192.0.2.1", "192.0.2.2"]  # one retry for the silent port, as configured
+    assert [d["hosts_done"] for name, d in events if name == "host_done"] == [1, 2]
 
 
 def test_ssh_reports_show_the_security_grade_in_all_formats(tmp_path):
@@ -149,4 +150,3 @@ def test_ssh_reports_show_the_security_grade_in_all_formats(tmp_path):
     assert "security_grade" in reports[".csv"] and ",D," in reports[".csv"]
     assert "| Grade |" in reports[".md"] and "| D |" in reports[".md"]
     assert "Security Grade" in reports[".html"] and "D" in reports[".html"]
-    assert [d["hosts_done"] for name, d in events if name == "host_done"] == [1, 2]
