@@ -105,6 +105,10 @@ class Endpoint(BaseModel):
     ip_address: str | None = None
     port: int | None = None
     grade: str | None = None
+    crypto_grade: str | None = Field(None, description="Underlying TLS cryptographic grade, independent of PKI trust and identity.")
+    pki_status: str | None = Field(None, description="PKI trust, identity and validity outcome; NOT_TESTED is not trusted.")
+    pki_issues: list[str] = Field([], description="All proven PKI and identity issues, including simultaneous failures.")
+    grade_version: str | None = None
     compliance_status: str | None = Field(None, description="compliant, non_compliant, error or not_tested.")
     highest_severity: str | None = Field(None, description="critical, high, medium, low or informational.")
     tls_versions: list[str] = []

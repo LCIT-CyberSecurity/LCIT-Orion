@@ -49,6 +49,9 @@ def build_csv_export(results, args, scan_timestamp):
             "Port Selection",
             "Crypto Profile",
             "DNS Resolution",
+            "Crypto Grade",
+            "PKI Status",
+            "Grade Version",
         ]
     )
 
@@ -59,5 +62,13 @@ def build_csv_export(results, args, scan_timestamp):
         args.crypto,
         "disabled" if args.ip else "enabled",
     ]
-    rows = [list(row) + scan_metadata for row in results]
+    rows = []
+    for row in results:
+        endpoint_id = f"{row[0]}:{row[2]}/tcp"
+        assessment = getattr(args, "grade_assessments", {}).get(endpoint_id, {})
+        rows.append(list(row) + scan_metadata + [
+            assessment.get("crypto_grade", row[3]),
+            assessment.get("pki_status", "NOT_TESTED"),
+            assessment.get("grade_version", "legacy"),
+        ])
     return headers, rows

@@ -58,7 +58,9 @@ def endpoint_tags(db: DbSession, endpoints: list[RunEndpoint]) -> dict[str, set[
 
 
 def endpoint_out(e: RunEndpoint, by_value: dict[str, set[str]]) -> dict[str, Any]:
+    risk = e.contextual_risk or {}
     return {"endpoint_id": e.endpoint_id, "hostname": e.hostname, "ip_address": e.ip_address, "port": e.port, "grade": e.grade,
+            "crypto_grade": risk.get("crypto_grade"), "pki_status": risk.get("pki_status"), "pki_issues": risk.get("pki_issues", []), "grade_version": risk.get("grade_version"),
             "compliance_status": e.compliance_status, "highest_severity": e.highest_severity, "tls_versions": e.supported_tls_versions,
             "certificate": e.certificate, "errors": e.errors, "untested_checks": e.untested_checks,
             "tls_checks": e.tls_checks or [],

@@ -24,7 +24,7 @@ function endpointColumns(t: (key: never) => string): Column<Endpoint>[] {
   return [
     { key: "endpoint", header: "Endpoint", values: (e) => [e.hostname || e.ip_address], sort: endpointLabel, render: (e) => <span className="row-link">{endpointLabel(e)}</span> },
     { key: "tags", header: tr("col.tags"), values: (e) => e.tags ?? [], render: (e) => (e.tags?.length ? <TagList tags={e.tags} /> : "—") },
-    { key: "grade", header: tr("run.grade"), values: (e) => [e.grade], render: (e) => e.grade },
+    { key: "grade", header: tr("run.grade"), values: (e) => [e.grade, e.crypto_grade ?? "NOT_EVALUATED", e.pki_status ?? "NOT_TESTED"], render: (e) => <span title={`${tr("run.cryptoGrade")}: ${e.crypto_grade ?? "NOT_EVALUATED"} · ${tr("run.pkiStatus")}: ${e.pki_status ?? "NOT_TESTED"} · ${(e.pki_issues ?? []).join(", ")}`}>{e.grade}<br /><span className="text-xs text-muted">{tr("run.cryptoGrade")}: {e.crypto_grade ?? "NOT_EVALUATED"} · {tr(`pki.${e.pki_status ?? "NOT_TESTED"}` as never)}</span></span> },
     { key: "exposure", header: tr("exposure.state"), values: (e) => [e.exposure?.state ?? "unknown"], render: (e) => <span className="text-xs" title={[e.exposure?.source, e.exposure?.evidence_method, e.exposure?.justification].filter(Boolean).join(" · ")}>{tr(`exposure.${e.exposure?.state ?? "unknown"}`)}{e.exposure?.validated ? ` · ${tr("exposure.validated")}` : ""}</span> },
     { key: "status", header: tr("col.status"), values: (e) => [e.compliance_status], render: (e) => e.compliance_status },
     { key: "tls", header: "TLS", values: (e) => e.tls_versions, sort: (e) => e.tls_versions.join(", "), render: (e) => e.tls_versions.join(", ") },

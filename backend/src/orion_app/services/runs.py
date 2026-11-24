@@ -192,7 +192,11 @@ def persist_results(db: DbSession, run: ScanRun, outcome: dict[str, Any], status
         exposure = contextual_risk.exposure_for_endpoint(endpoint, run.config_snapshot or {}) or {
             "protocol": "tls", "state": "unknown", "validated": False, "reason": "no endpoint-specific evidence was recorded"}
         risk_summary = {"matrix_version": contextual_risk.MATRIX_VERSION, "exposure": exposure,
-                        "crypto_grade": endpoint.get("overall_grade", "")}
+                        "crypto_grade": endpoint.get("crypto_grade", endpoint.get("overall_grade", "")),
+                        "display_grade": endpoint.get("overall_grade", ""),
+                        "pki_status": endpoint.get("pki_status", "NOT_TESTED"),
+                        "pki_issues": endpoint.get("pki_issues", []),
+                        "grade_version": endpoint.get("grade_version", "legacy")}
         db.add(RunEndpoint(
             run_id=run.id, endpoint_id=endpoint["endpoint_id"], hostname=endpoint.get("hostname", ""),
             ip_address=endpoint.get("ip_address", ""), port=str(endpoint.get("port", "")), grade=endpoint.get("overall_grade", ""),
