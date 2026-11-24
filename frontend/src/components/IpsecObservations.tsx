@@ -9,13 +9,16 @@ export function IpsecObservations({ observations }: { observations: IpsecObserva
   const observed = observations.filter((observation) => observation.status === "observed");
   const errors = observations.filter((observation) => observation.status === "error");
   const { t } = useI18n();
-  if (observed.length === 0 && errors.length === 0) return null;
 
   return (
     <Card className="mb-6">
       <CardHeader><CardTitle>{t("ipsec.results" as never)}</CardTitle></CardHeader>
       <p className="px-5 pb-3 text-xs text-muted">{t("ipsec.notice" as never)}</p>
       {errors.length > 0 && <p role="alert" className="px-5 pb-3 text-xs text-danger">{t("ipsec.probeErrors" as never)} ({errors.length})</p>}
+      {observed.length === 0 && errors.length === 0 && <div role="status" className="mx-5 mb-5 rounded-lg border border-dashed p-4 text-sm">
+        <p>{t("ipsec.noResponse" as never)}</p>
+        {observations.length > 0 && <p className="mt-2 text-xs text-muted">{observations.length} {t("ipsec.rawProbesRetained" as never)}</p>}
+      </div>}
       {observed.length > 0 && <DataTable rows={observed} rowKey={(row) => `${row.target}:${row.port}:${row.ike_version}`} columns={[
         { key: "target", header: "Target", values: (row) => [row.target], render: (row) => row.target },
         { key: "port", header: "UDP", values: (row) => [String(row.port)], render: (row) => row.port },

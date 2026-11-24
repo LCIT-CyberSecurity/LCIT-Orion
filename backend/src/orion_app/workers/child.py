@@ -98,6 +98,126 @@ def write_ssh_reports(observations: list[dict], export_dir: Path, run_id: str, f
     return files
 
 
+IPSEC_REPORT_FIELDS = (
+    "target", "port", "status", "ike_version", "exchange", "verdict", "policy_verdicts",
+    "encryption", "key_length_bits", "integrity", "prf", "dh_group",
+)
+IPSEC_REPORT_HEADERS = (
+    "Target", "UDP port", "Response", "IKE", "Exchange", "Policy", "Encryption",
+    "Key length", "Integrity", "PRF", "DH group",
+)
+IPSEC_REPORT_LIMITS = (
+    "Unauthenticated IKE discovery only. Silence or a timeout does not prove that a VPN is absent. "
+    "ESP/Child SA, authentication, PFS, and tunnel operation are not evaluated."
+)
+
+
+def write_ipsec_reports(observations: list[dict], export_dir: Path, run_id: str, formats: list[str]) -> list[str]:
+    """Write responding IKE proposals while leaving silent probes in stored scan data only."""
+    root = export_dir / run_id
+    root.mkdir(parents=True, exist_ok=True)
+    observed = [item for item in observations if item.get("status") == "observed"]
+    targets = {str(item.get("target", "")) for item in observations if item.get("target")}
+    files: list[str] = []
+
+    def display_policies(item: dict) -> str:
+        policies = item.get("evidence", {}).get("policy_verdicts", {})
+        return ", ".join(f"{name}: {verdict}" for name, verdict in sorted(policies.items())) or "—"
+
+    def proposal_value(item: dict, key: str) -> object:
+        return (item.get("proposal") or {}).get(key, "")
+
+    for fmt in formats:
+        path = root / f"ipsec-results.{fmt}"
+        if fmt == "csv":
+            stream = io.StringIO(newline="")
+            writer = csv.DictWriter(stream, fieldnames=IPSEC_REPORT_FIELDS, extrasaction="ignore")
+            writer.writeheader()
+            for item in observed:
+                writer.writerow({
+                    "target": item.get("target", ""), "port": item.get("port", ""), "status": item.get("status", ""),
+                    "ike_version": item.get("ike_version", ""), "exchange": item.get("exchange", ""),
+                    "verdict": item.get("verdict", ""),
+                    "policy_verdicts": json.dumps(item.get("evidence", {}).get("policy_verdicts", {}), sort_keys=True),
+                    **(item.get("proposal") or {}),
+                })
+            path.write_text(stream.getvalue(), encoding="utf-8")
+        elif fmt == "md":
+            lines = [
+                "# IPsec / IKE Security Assessment", "", f"> {IPSEC_REPORT_LIMITS}", "",
+                "## Scan summary", "", f"- Targets probed: {len(targets)}", f"- IKE responses observed: {len(observed)}", "",
+                "## Observed IKE proposals", "",
+            ]
+            if observed:
+                lines.extend([
+                    "| " + " | ".join(IPSEC_REPORT_HEADERS) + " |",
+                    "|" + "|".join(["---"] * len(IPSEC_REPORT_HEADERS)) + "|",
+                ])
+                for item in observed:
+                    values = (
+                        item.get("target", ""), item.get("port", ""), "Observed", item.get("ike_version", ""),
+                        item.get("exchange", ""), display_policies(item),
+                        *(proposal_value(item, key) or "—" for key in ("encryption", "key_length_bits", "integrity", "prf", "dh_group")),
+                    )
+                    lines.append("| " + " | ".join(str(value).replace("|", "\\|").replace("\n", " ") for value in values) + " |")
+            else:
+                lines.append("> **No IKE response was observed.** No responding IKE service or proposal can be reported. UDP silence and timeouts are inconclusive; they do not establish that no VPN is present.")
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        elif fmt == "html":
+            def cell(value: object) -> str:
+                return html.escape(str(value)) if value not in (None, "") else "—"
+
+            rows = []
+            for item in observed:
+                values = (
+                    item.get("target", ""), item.get("port", ""), "Observed", item.get("ike_version", ""),
+                    item.get("exchange", ""), display_policies(item),
+                    *(proposal_value(item, key) for key in ("encryption", "key_length_bits", "integrity", "prf", "dh_group")),
+                )
+                rows.append("<tr>" + "".join(f"<td>{cell(value)}</td>" for value in values) + "</tr>")
+            if observed:
+                content = (
+                    '<div class="table-wrap"><table><thead><tr>'
+                    + "".join(f"<th>{html.escape(label)}</th>" for label in IPSEC_REPORT_HEADERS)
+                    + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+                )
+            else:
+                content = (
+                    '<div class="empty-state" role="status"><h2>No IKE response was observed</h2>'
+                    '<p>No responding IKE service or proposal can be reported. UDP silence and timeouts are inconclusive; '
+                    "they do not establish that no VPN is present.</p></div>"
+                )
+            document = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>IPsec / IKE Security Assessment</title>
+<style>
+:root {{ color-scheme: light; font-family: Inter, system-ui, sans-serif; color: #17212f; background: #f3f6fa; }}
+* {{ box-sizing: border-box; }} body {{ margin: 0; }} main {{ max-width: 1180px; margin: 0 auto; padding: 40px 24px 56px; }}
+.masthead {{ border-bottom: 1px solid #dce3ed; padding-bottom: 22px; }} .brand {{ color: #53657a; font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }}
+h1 {{ margin: 12px 0 8px; font-size: clamp(1.8rem, 4vw, 2.7rem); letter-spacing: -.035em; }} .lead {{ max-width: 780px; margin: 0; color: #53657a; line-height: 1.6; }}
+.summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin: 24px 0 32px; }}
+.metric, .panel {{ background: #fff; border: 1px solid #dce3ed; border-radius: 12px; box-shadow: 0 3px 12px #24364a0b; }} .metric {{ padding: 17px 19px; }}
+.metric span {{ display: block; color: #53657a; font-size: .82rem; }} .metric strong {{ display: block; margin-top: 5px; font-size: 1.65rem; }}
+.panel {{ padding: clamp(18px, 3vw, 28px); }} h2 {{ margin: 0 0 16px; font-size: 1.25rem; }} .empty-state {{ border: 1px dashed #bac8d8; border-radius: 10px; padding: 24px; background: #f8fafc; }}
+.empty-state h2 {{ margin-bottom: 8px; }} .empty-state p {{ max-width: 760px; margin: 0; color: #53657a; line-height: 1.6; }} .table-wrap {{ overflow-x: auto; }}
+table {{ width: 100%; border-collapse: collapse; font-size: .9rem; }} th, td {{ padding: 12px 11px; border-bottom: 1px solid #e6ebf1; text-align: left; vertical-align: top; }}
+th {{ background: #f7f9fc; color: #43556b; font-size: .77rem; letter-spacing: .035em; }} tbody tr:last-child td {{ border-bottom: 0; }} footer {{ margin-top: 24px; color: #66788d; font-size: .8rem; }}
+@media (max-width: 640px) {{ main {{ padding: 24px 14px 36px; }} .panel {{ padding: 16px; }} }}
+@media print {{ :root {{ background: #fff; }} main {{ max-width: none; padding: 0; }} .metric, .panel {{ box-shadow: none; break-inside: avoid; }} body {{ print-color-adjust: exact; }} }}
+</style></head><body><main>
+<header class="masthead"><div class="brand">Orion · LCIT Cybersecurity</div><h1>IPsec / IKE Security Assessment</h1><p class="lead">{html.escape(IPSEC_REPORT_LIMITS)}</p></header>
+<section class="summary" aria-label="Scan summary"><div class="metric"><span>Targets probed</span><strong>{len(targets)}</strong></div><div class="metric"><span>IKE responses observed</span><strong>{len(observed)}</strong></div></section>
+<section class="panel"><h2>Observed IKE proposals</h2>{content}</section>
+<footer>Discovery only. An observed IKE proposal does not demonstrate successful tunnel establishment or prove this is the complete proposal set.</footer>
+</main></body></html>
+"""
+            path.write_text(document, encoding="utf-8")
+        else:
+            continue
+        files.append(str(path))
+    return files
+
+
 def scan_ipsec(config: dict, targets: list[str], export_dir: Path, run_id: str, formats: list[str], cancel, emit):
     """Run bounded IKE probes and keep the observations separate from TLS grades."""
     ike = config["ike"]
@@ -118,32 +238,7 @@ def scan_ipsec(config: dict, targets: list[str], export_dir: Path, run_id: str, 
                                    "compliant" if values == {"compliant"} else "indeterminate")
         observation.setdefault("evidence", {})["policy_verdicts"] = verdicts
 
-    root = export_dir / run_id
-    root.mkdir(parents=True, exist_ok=True)
-    rows = [{"target": x["target"], "port": x["port"], "status": x["status"], "ike_version": x["ike_version"],
-             "exchange": x["exchange"], "verdict": x["verdict"],
-             "policy_verdicts": json.dumps(x.get("evidence", {}).get("policy_verdicts", {}), sort_keys=True),
-             **(x["proposal"] or {})} for x in observations]
-    fields = ("target", "port", "status", "ike_version", "exchange", "verdict", "policy_verdicts", "encryption", "key_length_bits", "integrity", "prf", "dh_group")
-    written = []
-    for fmt in formats:
-        path = root / f"ipsec-results.{fmt}"
-        if fmt == "csv":
-            stream = io.StringIO(newline="")
-            writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
-            writer.writeheader(); writer.writerows(rows)
-            path.write_text(stream.getvalue(), encoding="utf-8")
-        elif fmt == "md":
-            lines = ["# IPsec / IKE scan results", "", "> Unauthenticated discovery only; tunnel operation was not evaluated.", "",
-                     "| " + " | ".join(fields) + " |", "|" + "|".join(["---"] * len(fields)) + "|"]
-            lines.extend("| " + " | ".join(str(row.get(key, "")) for key in fields) + " |" for row in rows)
-            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        elif fmt == "html":
-            cells = "".join("<tr>" + "".join(f"<td>{html.escape(str(row.get(key, '')))}</td>" for key in fields) + "</tr>" for row in rows)
-            path.write_text("<!doctype html><meta charset='utf-8'><title>IPsec scan</title><h1>IPsec / IKE results</h1><p>Unauthenticated discovery only; tunnel operation was not evaluated.</p><table><thead><tr>" + "".join(f"<th>{html.escape(key)}</th>" for key in fields) + f"</tr></thead><tbody>{cells}</tbody></table>", encoding="utf-8")
-        else:
-            continue
-        written.append(str(path))
+    written = write_ipsec_reports(observations, export_dir, run_id, formats)
     return observations, written
 
 
@@ -182,52 +277,11 @@ def main(argv: list[str]) -> int:
         return 0
     if payload["snapshot"].get("control_type") == "ipsec":
         snapshot = payload["snapshot"]
-        ike = snapshot["ike"]
         targets = sorted({target for p in snapshot["passes"] for target in p["targets"]})
-        total = len(targets) * len(ike["versions"]) * len(ike["ports"])
-        emit("phase", {"phase": "ipsec_probe", "hosts": targets})
-        observations = probe_targets(
-            targets, ike["versions"], ike["ports"], timeout_ms=ike.get("timeout_ms", 1000),
-            retries=ike.get("retries", 0), nat_t=ike.get("nat_t", True),
-            ikev1_transforms=ike.get("ikev1_transforms", []),
-            max_parallelism=ike.get("max_parallelism", 4), cancel=cancel,
-            on_complete=lambda target, done, _total: emit(
-                "host_done", {"target": target, "hosts_done": done, "hosts_total": total}),
+        observations, written = scan_ipsec(
+            {"ike": snapshot["ike"], "policies": snapshot["policies"]}, targets,
+            Path(payload["export_dir"]), payload["run_id"], snapshot["export_formats"], cancel, emit,
         )
-        for observation in observations:
-            verdicts = {p["name"]: evaluate_policy(observation, p["content"]) for p in snapshot["policies"]}
-            values = set(verdicts.values())
-            observation["verdict"] = ("non_compliant" if "non_compliant" in values else
-                                       "compliant" if values == {"compliant"} else "indeterminate")
-            observation.setdefault("evidence", {})["policy_verdicts"] = verdicts
-        root = Path(payload["export_dir"]) / payload["run_id"]
-        root.mkdir(parents=True, exist_ok=True)
-        written = []
-        rows = [{"target": x["target"], "port": x["port"], "status": x["status"], "ike_version": x["ike_version"],
-                 "exchange": x["exchange"], "verdict": x["verdict"],
-                 "policy_verdicts": json.dumps(x.get("evidence", {}).get("policy_verdicts", {}), sort_keys=True),
-                 **(x["proposal"] or {})} for x in observations]
-        for fmt in snapshot["export_formats"]:
-            path = root / f"ipsec-results.{fmt}"
-            if fmt == "csv":
-                stream = io.StringIO(newline="")
-                fields = ["target", "port", "status", "ike_version", "exchange", "verdict", "policy_verdicts", "encryption", "key_length_bits", "integrity", "prf", "dh_group"]
-                writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
-                writer.writeheader(); writer.writerows(rows)
-                path.write_text(stream.getvalue())
-            elif fmt == "md":
-                lines = ["# IPsec / IKE scan results", "", "> Unauthenticated discovery only. ESP/Child SA, authentication, PFS and tunnel operation were not evaluated.", "",
-                         "| Target | UDP | Status | IKE | Exchange | Verdict | Policy verdicts | Encryption | Key bits | Integrity | PRF | DH group |", "|---|---:|---|---|---|---|---|---|---:|---|---|---|"]
-                lines.extend("| " + " | ".join(str(row.get(k, "")) for k in ("target", "port", "status", "ike_version", "exchange", "verdict", "policy_verdicts", "encryption", "key_length_bits", "integrity", "prf", "dh_group")) + " |" for row in rows)
-                path.write_text("\n".join(lines) + "\n")
-            elif fmt == "html":
-                fields = ("target", "port", "status", "ike_version", "exchange", "verdict", "policy_verdicts", "encryption", "key_length_bits", "integrity", "prf", "dh_group")
-                cells = "".join("<tr>" + "".join(f"<td>{html.escape(str(row.get(k, '')))}</td>" for k in fields) + "</tr>" for row in rows)
-                headers = ("Target", "UDP", "Status", "IKE", "Exchange", "Verdict", "Policy verdicts", "Encryption", "Key bits", "Integrity", "PRF", "DH group")
-                path.write_text("<!doctype html><meta charset='utf-8'><title>IPsec scan</title><h1>IPsec / IKE results</h1><p>Unauthenticated discovery only. ESP/Child SA, authentication, PFS and tunnel operation were not evaluated.</p><table><thead><tr>" + "".join(f"<th>{x}</th>" for x in headers) + f"</tr></thead><tbody>{cells}</tbody></table>")
-            else:
-                continue
-            written.append(str(path))
         service_observations, service_files = scan_services(snapshot, snapshot["passes"])
         outcome_path.write_text(json.dumps({"status": "partial" if cancel.is_set() else "completed",
             "report_model": {"statistics": {"ipsec_observations": len(observations), "service_observations": len(service_observations)}}, "ipsec_observations": observations,
