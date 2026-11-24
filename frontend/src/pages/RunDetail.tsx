@@ -10,6 +10,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { DataTable, type Column } from "../components/DataTable";
 import { GroupedEndpoints } from "../components/GroupedEndpoints";
+import { IpsecObservations } from "../components/IpsecObservations";
 import { PkiTrust } from "../components/PkiTrust";
 import { ScanProgress } from "../components/ScanProgress";
 import { useI18n } from "../i18n";
@@ -179,17 +180,7 @@ export default function RunDetail() {
           </section>)}
         </CardContent>
       </Card>}
-      {(run.control_type === "ipsec" || run.control_type === "multi") && <Card className="mb-6"><CardHeader><CardTitle>{t("ipsec.results" as never)}</CardTitle></CardHeader>
-        <p className="px-5 pb-3 text-xs text-muted">{t("ipsec.notice" as never)}</p>
-        {run.ipsec_observations?.length ? <DataTable rows={run.ipsec_observations} rowKey={(r) => `${r.target}:${r.port}:${r.ike_version}`} columns={[
-          { key: "target", header: "Target", values: (r) => [r.target], render: (r) => r.target },
-          { key: "port", header: "UDP", values: (r) => [String(r.port)], render: (r) => r.port },
-          { key: "version", header: "IKE", values: (r) => [r.ike_version], render: (r) => r.ike_version || "—" },
-          { key: "status", header: "Probe", values: (r) => [r.status], render: (r) => r.status },
-          { key: "verdict", header: "Policy", values: (r) => [r.verdict], render: (r) => <Badge tone={r.verdict === "compliant" ? "success" : r.verdict === "non_compliant" ? "danger" : "warning"}>{r.verdict}</Badge> },
-          { key: "proposal", header: "Observed proposal", values: (r) => [JSON.stringify(r.proposal)], render: (r) => <span className="text-xs">{Object.entries(r.proposal).map(([k, v]) => `${k}: ${v}`).join(" · ") || "Non déterminable"}</span> },
-        ]} /> : <Empty>—</Empty>}
-      </Card>}
+      {(run.control_type === "ipsec" || run.control_type === "multi") && <IpsecObservations observations={run.ipsec_observations ?? []} />}
       {!!run.ssh_observations?.length && <Card className="mb-6"><CardHeader><CardTitle>SSH audit</CardTitle></CardHeader>
         <p className="px-5 pb-3 text-xs text-muted">Unauthenticated protocol observations from ssh-audit; authentication and rate tests are not performed.</p>
         <DataTable rows={run.ssh_observations} rowKey={(r) => `${r.target}:${r.port}`} columns={[
