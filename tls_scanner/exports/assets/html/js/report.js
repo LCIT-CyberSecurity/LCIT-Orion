@@ -655,6 +655,8 @@
     const scores = endpoints.map(endpointScore);
     const score = scores.length ? Math.round(scores.reduce((total, item) => total + item, 0) / scores.length) : 0;
     const worstGrade = endpoints.reduce((worst, endpoint) => (gradeOrder[endpoint.overall_grade] ?? 99) > (gradeOrder[worst] ?? 99) ? endpoint.overall_grade : worst, endpoints[0].overall_grade);
+    const cryptoGrade = (endpoint) => endpoint.crypto_grade || (['T', 'M'].includes(endpoint.overall_grade) ? 'Not Tested' : endpoint.overall_grade);
+    const worstCryptoGrade = endpoints.reduce((worst, endpoint) => (gradeOrder[cryptoGrade(endpoint)] ?? 99) > (gradeOrder[worst] ?? 99) ? cryptoGrade(endpoint) : worst, cryptoGrade(endpoints[0]));
     const highestSeverity = endpoints.reduce((worst, endpoint) => (severityOrder[endpoint.highest_severity] ?? 9) < (severityOrder[worst] ?? 9) ? endpoint.highest_severity : worst, endpoints[0].highest_severity);
     const findings = endpoints.reduce((total, endpoint) => total + Number(endpoint.finding_count || 0), 0);
     const failed = endpoints.filter((endpoint) => endpoint.compliance_status !== 'compliant').length;
@@ -662,7 +664,14 @@
     const protocols = Array.from(new Set(endpoints.flatMap((endpoint) => endpoint.supported_tls_versions || [])));
     const certStatuses = Array.from(new Set(endpoints.map((endpoint) => endpoint.certificate.status).filter(Boolean)));
     const trust = Array.from(new Set(endpoints.map((endpoint) => endpoint.certificate.trust_classification).filter(Boolean)));
-    return {score, worstGrade, highestSeverity, findings, failed, ports, protocols, certStatuses, trust};
+    const commonNames = Array.from(new Set(endpoints.map((endpoint) => certificateCommonName(endpoint.certificate.subject)).filter(Boolean)));
+    const certificateGrade = endpoints.some((endpoint) => endpoint.overall_grade === 'T') ? 'T' : '—';
+    return {score, worstGrade, worstCryptoGrade, certificateGrade, highestSeverity, findings, failed, ports, protocols, certStatuses, trust, commonNames};
+  }
+
+  function certificateCommonName(subject){
+    const match = String(subject || '').match(/(?:^|[,/])\s*CN\s*=\s*((?:\\.|[^,/])*)/i);
+    return match ? match[1].replace(/\\([,/=+<>#;\\])/g, '$1').trim() : '';
   }
 
   function portList(ports){
@@ -691,7 +700,14 @@
     identity.append(valueNode(group.host, 'endpoint-host'), valueNode(`${group.endpoints[0].ip_address} · ${summary.ports.join(', ')}`, 'endpoint-address'));
     identity.append(portList(summary.protocols));
     const state = el('div','endpoint-state');
-    state.append(statusBadge(summary.failed ? 'Non-compliant' : 'Compliant'), valueNode(`Certificate: ${summary.certStatuses.join(', ') || 'Not Tested'} · ${summary.trust.join(', ') || 'Trust not tested'}`, 'endpoint-cert'));
+    state.append(statusBadge(summary.failed ? 'Non-compliant' : 'Compliant'), valueNode(`Encryption grade: ${summary.worstCryptoGrade}`, 'endpoint-grade'));
+    const certificateColumns = el('div','endpoint-certificate-columns');
+    const trustGrade = el('div','endpoint-certificate-cell');
+    trustGrade.append(el('span','endpoint-certificate-label','Certificate grade (T)'), valueNode(summary.certificateGrade, 'endpoint-grade'));
+    const commonName = el('div','endpoint-certificate-cell');
+    commonName.append(el('span','endpoint-certificate-label','Common Name'), valueNode(summary.commonNames.join(', ') || 'Not present', 'endpoint-certificate-value'));
+    certificateColumns.append(trustGrade, commonName);
+    state.append(certificateColumns, valueNode(`Trust status: ${summary.trust.join(', ') || 'Not tested'}`, 'endpoint-cert'), valueNode(`Certificate: ${summary.certStatuses.join(', ') || 'Not Tested'}`, 'endpoint-cert'));
     const risk = el('div','endpoint-risk');
     risk.append(valueNode(`High ${counts.critical + counts.high}`, severityClass(counts.critical + counts.high ? 'high' : 'none')), valueNode(`Medium ${counts.medium}`, severityClass(counts.medium ? 'medium' : 'none')), valueNode(`${summary.findings} findings`, 'muted'));
     const action = button('View details', () => openHostEndpoints(group), 'text-button no-print');
@@ -796,6 +812,8 @@
       });
       const rows = endpoints.map((endpoint) => [
         endpoint.endpoint_id,
+        endpoint.overall_grade === 'T' ? 'T' : '—',
+        certificateCommonName(endpoint.certificate.subject) || 'Not present',
         endpoint.certificate.subject,
         endpoint.certificate.valid_until,
         `${endpoint.certificate.key_type} ${endpoint.certificate.key_size || ''}`.trim(),
@@ -809,7 +827,7 @@
         endpoint.certificate.chain_validation_status,
         endpoint.certificate.revocation_status,
       ]);
-      $('certificateTable').replaceChildren(table(['Endpoint','Subject','Expiration','Key','Trust','Hostname validation','Issuer','SAN','Trusted by','Trust anchor','Signature','Chain validation','Revocation'], rows, {filterable:true}));
+      $('certificateTable').replaceChildren(table(['Endpoint','Certificate grade (T)','Common Name','Subject','Expiration','Key','Trust','Hostname validation','Issuer','SAN','Trusted by','Trust anchor','Signature','Chain validation','Revocation'], rows, {filterable:true}));
     };
     [status, sort].forEach((node) => node.addEventListener('change', render));
     render();
