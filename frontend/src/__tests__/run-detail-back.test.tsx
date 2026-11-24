@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { I18nProvider } from "../i18n";
 import RunDetail from "../pages/RunDetail";
+import { api } from "../api/client";
 
 const run = {
   id: "r1", name: "home scan", status: "completed", control_type: "tls", queued_at: "2026-11-19T17:46:00Z", duration_seconds: 42,
@@ -38,5 +39,20 @@ describe("scan detail back button (LST-32)", () => {
     openRun(["/scans/r1"]);
     fireEvent.click(await screen.findByRole("button", { name: "Back" }));
     expect(await screen.findByTestId("where")).toHaveTextContent("/scans?tab=history");
+  });
+
+  it("shows clear empty states when a multi-control scan has no IKE or SSH response", async () => {
+    vi.mocked(api).mockResolvedValueOnce({
+      ...run,
+      control_type: "multi",
+      ipsec_observations: [{ target: "192.0.2.10", port: 500, status: "timeout", ike_version: "", exchange: "", proposal: {}, verdict: "indeterminate", evidence: {} }],
+      ssh_observations: [],
+    } as never);
+    openRun(["/scans/r1"]);
+
+    expect(await screen.findByText(/No IKE response was received during discovery/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 silent or indeterminate probe results are retained/i)).toBeInTheDocument();
+    expect(screen.getByText(/No SSH handshake observation was recorded/i)).toBeInTheDocument();
+    expect(screen.queryByText("192.0.2.10")).not.toBeInTheDocument();
   });
 });

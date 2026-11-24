@@ -189,9 +189,9 @@ export default function RunDetail() {
         </CardContent>
       </Card>}
       {(run.control_type === "ipsec" || run.control_type === "multi") && <IpsecObservations observations={run.ipsec_observations ?? []} />}
-      {!!run.ssh_observations?.length && <Card className="mb-6"><CardHeader><CardTitle>SSH audit</CardTitle></CardHeader>
+      {(run.control_type === "ssh" || run.control_type === "multi") && <Card className="mb-6"><CardHeader><CardTitle>SSH audit</CardTitle></CardHeader>
         <p className="px-5 pb-3 text-xs text-muted">{t("ssh.gradeHint" as never)} {t("ssh.auditLimits" as never)}</p>
-        <DataTable rows={run.ssh_observations} rowKey={(r) => `${r.target}:${r.port}`} columns={[
+        {run.ssh_observations?.length ? <DataTable rows={run.ssh_observations} rowKey={(r) => `${r.target}:${r.port}`} columns={[
           { key: "target", header: "Target", values: (r) => [r.target], render: (r) => r.target },
           { key: "port", header: "TCP", values: (r) => [String(r.port)], render: (r) => r.port },
           { key: "status", header: "Probe", values: (r) => [r.status], render: (r) => r.status },
@@ -199,7 +199,7 @@ export default function RunDetail() {
           { key: "banner", header: "Banner", values: (r) => [r.banner], render: (r) => <code className="text-xs">{r.banner || "—"}</code> },
           { key: "fingerprints", header: "Host key fingerprints", values: (r) => Object.values(r.fingerprints).map(String), render: (r) => <code className="break-all text-xs">{Object.entries(r.fingerprints).map(([key, value]) => `${key}: ${String(value)}`).join(" · ") || "—"}</code> },
           { key: "algorithms", header: "Observed algorithms", values: (r) => Object.values(r.algorithms).flat(), render: (r) => <span className="text-xs">{Object.entries(r.algorithms).flatMap(([k, v]) => v.map((x) => `${k}: ${x}`)).join(" · ") || "Indeterminate"}</span> },
-        ]} />
+        ]} /> : <p role="status" className="mx-5 mb-5 rounded-lg border border-dashed p-4 text-sm">{t("ssh.noObservation" as never)}</p>}
       </Card>}
       {!!run.service_observations?.length && <Card className="mb-6"><CardHeader><CardTitle>{t("service.results" as never)}</CardTitle></CardHeader>
         <p className="px-5 pb-3 text-xs text-muted">{t("service.resultsHint" as never)}</p>
