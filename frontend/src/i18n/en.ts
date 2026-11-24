@@ -447,7 +447,7 @@ export const en = {
   "run.recommendation": "Recommendation",
   "run.noRecommendation": "No recommendation documented",
   "run.grade": "Grade",
-  "run.cryptoGrade": "Crypto grade",
+  "run.cryptoGrade": "Encryption grade",
   "run.pkiStatus": "PKI status",
   "run.hosts": "hosts",
   "run.nonCompliant": "Non-compliant endpoints",

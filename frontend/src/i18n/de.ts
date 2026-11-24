@@ -448,7 +448,7 @@ export const de: Messages = {
   "run.recommendation": "Empfehlung",
   "run.noRecommendation": "Keine Empfehlung dokumentiert",
   "run.grade": "Bewertung",
-  "run.cryptoGrade": "Kryptobewertung",
+  "run.cryptoGrade": "Verschlüsselungsnote",
   "run.pkiStatus": "PKI-Status",
   "run.hosts": "Hosts",
   "run.nonCompliant": "Nicht konforme Endpunkte",

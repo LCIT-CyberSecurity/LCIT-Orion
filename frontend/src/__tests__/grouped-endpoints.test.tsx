@@ -12,11 +12,11 @@ const ep = (host: string, port: string, grade: string, status: string, extra: Pa
   endpoint_id: `${host}:${port}`, hostname: host, ip_address: "10.0.0.1", port, grade, compliance_status: status, highest_severity: "", tls_versions: ["TLS 1.2"],
   certificate: { valid_until: "2027-01-01" }, errors: [], untested_checks: [], ...extra,
 });
-const columns: Column<Endpoint>[] = ["endpoint", "tags", "grade", "status", "tls", "cert"].map((key) => ({ key, header: key, render: (e: Endpoint) => (key === "endpoint" ? `${e.hostname}:${e.port}` : key === "grade" ? e.grade : "") }));
-const rows = [ep("web", "443", "A", "compliant"), ep("web", "8443", "F", "non_compliant", { tls_versions: ["TLS 1.0"] }), ep("db", "5432", "B", "compliant")];
+const columns: Column<Endpoint>[] = ["endpoint", "tags", "crypto", "status", "tls", "cert"].map((key) => ({ key, header: key, render: (e: Endpoint) => (key === "endpoint" ? `${e.hostname}:${e.port}` : key === "crypto" ? e.crypto_grade ?? "—" : "") }));
+const rows = [ep("web", "443", "A", "compliant", { crypto_grade: "A" }), ep("web", "8443", "T", "non_compliant", { crypto_grade: "F", tls_versions: ["TLS 1.0"] }), ep("db", "5432", "B", "compliant", { crypto_grade: "B" })];
 
 describe("GroupedEndpoints", () => {
-  it("groups the ports of a host behind a chevron and shows the worst grade", () => {
+  it("groups the ports of a host behind a chevron and shows the worst encryption grade", () => {
     render(<I18nProvider initial="en"><GroupedEndpoints rows={rows} columns={columns} /></I18nProvider>);
     expect(screen.getByText("web")).toBeInTheDocument();
     expect(screen.getByText("2 endpoints")).toBeInTheDocument();
