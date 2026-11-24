@@ -665,7 +665,8 @@
     const certStatuses = Array.from(new Set(endpoints.map((endpoint) => endpoint.certificate.status).filter(Boolean)));
     const trust = Array.from(new Set(endpoints.map((endpoint) => endpoint.certificate.trust_classification).filter(Boolean)));
     const commonNames = Array.from(new Set(endpoints.map((endpoint) => certificateCommonName(endpoint.certificate.subject)).filter(Boolean)));
-    return {score, worstGrade, worstCryptoGrade, highestSeverity, findings, failed, ports, protocols, certStatuses, trust, commonNames};
+    const certificateGrade = endpoints.some((endpoint) => endpoint.overall_grade === 'T') ? 'T' : '—';
+    return {score, worstGrade, worstCryptoGrade, certificateGrade, highestSeverity, findings, failed, ports, protocols, certStatuses, trust, commonNames};
   }
 
   function certificateCommonName(subject){
@@ -699,7 +700,14 @@
     identity.append(valueNode(group.host, 'endpoint-host'), valueNode(`${group.endpoints[0].ip_address} · ${summary.ports.join(', ')}`, 'endpoint-address'));
     identity.append(portList(summary.protocols));
     const state = el('div','endpoint-state');
-    state.append(statusBadge(summary.failed ? 'Non-compliant' : 'Compliant'), valueNode(`Encryption grade: ${summary.worstCryptoGrade}`, 'endpoint-grade'), valueNode(`Certificate trust (T): ${summary.trust.join(', ') || 'Not tested'}`, 'endpoint-cert'), valueNode(`Common Name: ${summary.commonNames.join(', ') || 'Not present'}`, 'endpoint-cert'), valueNode(`Certificate: ${summary.certStatuses.join(', ') || 'Not Tested'}`, 'endpoint-cert'));
+    state.append(statusBadge(summary.failed ? 'Non-compliant' : 'Compliant'), valueNode(`Encryption grade: ${summary.worstCryptoGrade}`, 'endpoint-grade'));
+    const certificateColumns = el('div','endpoint-certificate-columns');
+    const trustGrade = el('div','endpoint-certificate-cell');
+    trustGrade.append(el('span','endpoint-certificate-label','Certificate grade (T)'), valueNode(summary.certificateGrade, 'endpoint-grade'));
+    const commonName = el('div','endpoint-certificate-cell');
+    commonName.append(el('span','endpoint-certificate-label','Common Name'), valueNode(summary.commonNames.join(', ') || 'Not present', 'endpoint-certificate-value'));
+    certificateColumns.append(trustGrade, commonName);
+    state.append(certificateColumns, valueNode(`Trust status: ${summary.trust.join(', ') || 'Not tested'}`, 'endpoint-cert'), valueNode(`Certificate: ${summary.certStatuses.join(', ') || 'Not Tested'}`, 'endpoint-cert'));
     const risk = el('div','endpoint-risk');
     risk.append(valueNode(`High ${counts.critical + counts.high}`, severityClass(counts.critical + counts.high ? 'high' : 'none')), valueNode(`Medium ${counts.medium}`, severityClass(counts.medium ? 'medium' : 'none')), valueNode(`${summary.findings} findings`, 'muted'));
     const action = button('View details', () => openHostEndpoints(group), 'text-button no-print');
@@ -804,6 +812,8 @@
       });
       const rows = endpoints.map((endpoint) => [
         endpoint.endpoint_id,
+        endpoint.overall_grade === 'T' ? 'T' : '—',
+        certificateCommonName(endpoint.certificate.subject) || 'Not present',
         endpoint.certificate.subject,
         endpoint.certificate.valid_until,
         `${endpoint.certificate.key_type} ${endpoint.certificate.key_size || ''}`.trim(),
@@ -817,7 +827,7 @@
         endpoint.certificate.chain_validation_status,
         endpoint.certificate.revocation_status,
       ]);
-      $('certificateTable').replaceChildren(table(['Endpoint','Subject','Expiration','Key','Trust','Hostname validation','Issuer','SAN','Trusted by','Trust anchor','Signature','Chain validation','Revocation'], rows, {filterable:true}));
+      $('certificateTable').replaceChildren(table(['Endpoint','Certificate grade (T)','Common Name','Subject','Expiration','Key','Trust','Hostname validation','Issuer','SAN','Trusted by','Trust anchor','Signature','Chain validation','Revocation'], rows, {filterable:true}));
     };
     [status, sort].forEach((node) => node.addEventListener('change', render));
     render();

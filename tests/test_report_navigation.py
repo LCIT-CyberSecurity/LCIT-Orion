@@ -10,8 +10,10 @@ class ReportNavigationTests(unittest.TestCase):
     def test_endpoint_cards_show_encryption_grade_and_certificate_trust_grade(self):
         script = (ROOT / "tls_scanner/exports/assets/html/js/report.js").read_text()
         self.assertIn("Encryption grade: ${summary.worstCryptoGrade}", script)
-        self.assertIn("Certificate trust (T): ${summary.trust.join(', ') || 'Not tested'}", script)
-        self.assertIn("Common Name: ${summary.commonNames.join(', ') || 'Not present'}", script)
+        self.assertIn("el('div','endpoint-certificate-columns')", script)
+        self.assertIn("el('span','endpoint-certificate-label','Certificate grade (T)')", script)
+        self.assertIn("el('span','endpoint-certificate-label','Common Name')", script)
+        self.assertIn("'Certificate grade (T)','Common Name'", script)
         self.assertIn("function certificateCommonName(subject)", script)
         self.assertIn("endpoint.crypto_grade", script)
 
