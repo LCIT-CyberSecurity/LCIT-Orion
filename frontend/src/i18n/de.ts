@@ -453,6 +453,8 @@ export const de: Messages = {
   "run.openHtml": "HTML-Bericht öffnen",
   "run.partial": "Dieser Scan ist unvollständig: Einige Ziele oder Prüfungen wurden nicht abgeschlossen.",
   "ipsec.results": "VPN-IPsec-/IKE-Beobachtungen",
+  "ipsec.parallelism": "Gleichzeitige Prüfungen (1–16)",
+  "ipsec.parallelismHint": "Der Standardwert ist 4. Höhere Werte beschleunigen Scans stiller Ziele, erhöhen aber die Netzwerklast. ",
   "service.title": "Zusätzliche Prüfungen",
   "service.enable": "Diensterkennung (Nmap -sV)",
   "service.scanHint": "Standardmäßig deaktiviert. Sonden bleiben auf den Scanbereich und beobachtete offene TCP-Ports beschränkt.",

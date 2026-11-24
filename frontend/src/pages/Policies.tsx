@@ -55,6 +55,7 @@ function SshProfileForm({ value, onChange }: { value: Content; onChange: (c: Con
 }
 
 function IpsecProfileForm({ value, onChange }: { value: Content; onChange: (c: Content) => void }) {
+  const { t } = useI18n();
   const ike = value.ike ?? {};
   const patch = (key: string, v: unknown) => onChange({ ike: { ...ike, [key]: v } });
   return <div className="space-y-4">
@@ -64,9 +65,10 @@ function IpsecProfileForm({ value, onChange }: { value: Content; onChange: (c: C
     <div className="grid gap-4 sm:grid-cols-2">
       <Field label="Timeout (ms)"><Input type="number" min={100} max={5000} value={ike.timeout_ms ?? 1000} onChange={(e) => patch("timeout_ms", Number(e.target.value))} /></Field>
       <Field label="Retransmissions (0–2)"><Input type="number" min={0} max={2} value={ike.retries ?? 0} onChange={(e) => patch("retries", Number(e.target.value))} /></Field>
+      <Field label={t("ipsec.parallelism")}><Input type="number" min={1} max={16} value={ike.max_parallelism ?? 4} onChange={(e) => patch("max_parallelism", Number(e.target.value))} /></Field>
     </div>
     <Field label="IKEv1 transforms (optional)" hint="Separate transforms with semicolons; each transform uses comma-separated ike-scan IDs. Example: 7/256,4,1,14"><Input value={(ike.ikev1_transforms ?? []).join("; ")} onChange={(e) => patch("ikev1_transforms", e.target.value.split(";").map((x: string) => x.trim()).filter(Boolean))} placeholder="7/256,4,1,14" /></Field>
-    <p className="text-sm text-muted">Only unauthenticated Main Mode / IKE_SA_INIT discovery is enabled. Aggressive Mode is unavailable. IKEv2 support depends on ike-scan’s experimental default proposal.</p>
+    <p className="text-sm text-muted">{t("ipsec.parallelismHint")} Only unauthenticated Main Mode / IKE_SA_INIT discovery is enabled. Aggressive Mode is unavailable. IKEv2 support depends on ike-scan’s experimental default proposal.</p>
   </div>;
 }
 
@@ -162,7 +164,7 @@ function ProfileForm({ value, onChange, includeServiceSettings = true }: { value
 function GenericProfileForm({ value, onChange }: { value: Content; onChange: (c: Content) => void }) {
   return <div className="space-y-6">
     <section className="space-y-3"><h3 className="text-sm font-semibold">TLS</h3><ProfileForm value={value.tls ?? {}} onChange={(tls) => onChange({ ...value, tls })} includeServiceSettings={false} /></section>
-    <section className="space-y-3"><h3 className="text-sm font-semibold">VPN IPsec / IKE</h3><IpsecProfileForm value={value.ipsec ?? { ike: { versions: ["IKEv1", "IKEv2"], ports: [500, 4500], timeout_ms: 1000, retries: 0, nat_t: true, aggressive_mode: false } }} onChange={(ipsec) => onChange({ ...value, ipsec })} /></section>
+    <section className="space-y-3"><h3 className="text-sm font-semibold">VPN IPsec / IKE</h3><IpsecProfileForm value={value.ipsec ?? { ike: { versions: ["IKEv1", "IKEv2"], ports: [500, 4500], timeout_ms: 1000, retries: 0, max_parallelism: 4, nat_t: true, aggressive_mode: false } }} onChange={(ipsec) => onChange({ ...value, ipsec })} /></section>
     <section className="space-y-3"><h3 className="text-sm font-semibold">SSH</h3><SshProfileForm value={value} onChange={onChange} /></section>
     <section className="space-y-3"><ServiceIdentificationProfileForm value={value.service_identification ?? {}} onChange={(service_identification) => onChange({ ...value, service_identification })} /></section>
   </div>;
@@ -279,7 +281,7 @@ export default function Policies() {
         <TabsContent value="policies"><VersionedTab kind="policies" technology={technology} Form={technology === "tls" ? PolicyForm : technology === "ipsec" ? IpsecPolicyForm : SshPolicyForm} blank={technology === "tls" ? { allowed_versions: ["TLSv1.2", "TLSv1.3"], allowed_cipher_algorithms: ["AES-GCM", "CHACHA20-POLY1305"], allowed_signature_hashes: ["SHA-256", "SHA-384", "SHA-512"], minimum_rsa_bits: 2048 } : technology === "ipsec" ? { allowed_versions: ["IKEv1", "IKEv2"], allowed_encryption: ["AES-GCM"], allowed_integrity: ["SHA-256"], allowed_prf: ["PRF-HMAC-SHA2-256"], allowed_dh_groups: ["MODP-2048"] } : { allowed_protocols: ["SSH-2.0"], allowed_kex: ["curve25519-sha256", "diffie-hellman-group14-sha256"], allowed_encryption: ["chacha20-poly1305@openssh.com", "aes256-gcm@openssh.com"], allowed_macs: ["hmac-sha2-256-etm@openssh.com"], allowed_host_keys: ["ssh-ed25519", "rsa-sha2-512"], minimum_rsa_bits: 2048 }} /></TabsContent>
         <TabsContent value="profiles"><VersionedTab kind="profiles" technology="generic" Form={GenericProfileForm} blank={{
           tls: { scan: { ports: "fast", crypto: "standard", resolve_dns: true, workers: 4 }, checks: { certificate: { enabled: true, expires_within_days: 30, trust: { enabled: true }, revocation: { enabled: false } }, ...tlsDefaults } },
-          ipsec: { ike: { versions: ["IKEv1", "IKEv2"], ports: [500, 4500], timeout_ms: 1000, retries: 0, nat_t: true, aggressive_mode: false } },
+          ipsec: { ike: { versions: ["IKEv1", "IKEv2"], ports: [500, 4500], timeout_ms: 1000, retries: 0, max_parallelism: 4, nat_t: true, aggressive_mode: false } },
           ssh: { ports: [22], timeout_seconds: 2, preset: "quick", max_targets: 256 },
           service_identification: { strategy: "fast", max_targets: 64, max_services: 200, timeout_seconds: 45, max_parallelism: 5 },
         }} /></TabsContent>
