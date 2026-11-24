@@ -7,6 +7,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReportNavigationTests(unittest.TestCase):
+    def test_endpoint_cards_show_encryption_grade_and_certificate_trust_grade(self):
+        script = (ROOT / "tls_scanner/exports/assets/html/js/report.js").read_text()
+        self.assertIn("Encryption grade: ${summary.worstCryptoGrade}", script)
+        self.assertIn("Certificate trust (T): ${summary.trust.join(', ') || 'Not tested'}", script)
+        self.assertIn("Common Name: ${summary.commonNames.join(', ') || 'Not present'}", script)
+        self.assertIn("function certificateCommonName(subject)", script)
+        self.assertIn("endpoint.crypto_grade", script)
+
     def test_endpoint_drawer_does_not_block_report_section_links(self):
         css = (ROOT / "tls_scanner/exports/assets/html/css/report.css").read_text()
         script = (ROOT / "tls_scanner/exports/assets/html/js/report.js").read_text()

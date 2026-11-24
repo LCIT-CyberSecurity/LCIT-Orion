@@ -1970,6 +1970,12 @@ summary.top-finding-row::-webkit-details-marker { display: none; }
   font-size: var(--text-xs);
 }
 
+.endpoint-grade {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+}
+
 .host-port-list {
   display: flex;
   flex-wrap: wrap;
