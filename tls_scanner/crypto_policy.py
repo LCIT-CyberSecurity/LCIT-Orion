@@ -210,60 +210,41 @@ def evaluate_compliance(
     return "OK", ""
 
 
-# Endpoint grading is intentionally stricter than per-row compliance and uses the weakest observed signal.
+# Grades describe negotiated TLS cryptography only. PKI trust, identity, expiry and
+# revocation are separate dimensions applied by assess_endpoint_grade().
+GRADE_ORDER = {"A+": 0, "A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6}
+GRADE_VERSION = "tls-grade-v2"
+
+
 def grade_finding(finding):
-    if finding.get("trust_classification") == "UNTRUSTED":
-        return "F"
-    tls_version = finding["tls_version"]
+    tls_version = finding.get("tls_version", "")
     cipher_suite = finding["cipher_suite"].upper()
     cipher_tokens = cipher_suite.split("_")
-    signature_algorithm = extract_signature_algorithm(
-        finding["certificate_output"]
-    ).upper()
-    normalized_signature = signature_algorithm.replace("-", "").replace("_", "")
     public_key_type = finding["public_key_type"]
     public_key_bits = finding["public_key_bits"]
 
-    try:
-        cert_expiry_date = datetime.strptime(
-            finding["cert_validity"],
-            "%Y-%m-%d",
-        )
-    except ValueError:
-        return "F"
-
-    if cert_expiry_date < datetime.now():
-        return "F"
-
-    if any(token in cipher_tokens for token in ["NULL", "EXPORT", "RC4"]):
+    if any(token in cipher_tokens for token in ["NULL", "EXPORT"]) or tls_version in {"SSLv2", "SSLv2.0"}:
         return "F"
 
     if tls_version not in ["TLSv1.0", "TLSv1.1", "TLSv1.2", "TLSv1.3"]:
-        return "F"
+        return "NOT_EVALUATED"
 
-    if public_key_type == "RSA" and (
-        public_key_bits is None or public_key_bits < 2048
-    ):
-        return "F"
-
-    if "MD5" in cipher_tokens or "MD5" in normalized_signature:
+    if public_key_type == "RSA" and public_key_bits is not None and public_key_bits < 2048:
         return "D"
 
-    if tls_version == "TLSv1.0" or any(
-        token in cipher_tokens for token in ["DES", "3DES", "IDEA"]
-    ):
+    if "MD5" in cipher_tokens:
         return "D"
 
-    if (
-        tls_version == "TLSv1.1"
-        or "SHA1" in cipher_tokens
-        or cipher_suite.endswith("_SHA")
-        or "SHA1" in normalized_signature
-    ):
+    if tls_version == "TLSv1.0" or any(token in cipher_tokens for token in ["DES", "3DES", "IDEA", "RC4"]):
+        return "E"
+
+    if tls_version == "TLSv1.1":
+        return "D"
+
+    # A certificate signature is PKI hygiene and must not be counted as a
+    # negotiated cipher property. SHA-1 in a TLS CBC suite remains a crypto issue.
+    if "SHA1" in cipher_tokens or cipher_suite.endswith("_SHA"):
         return "C"
-
-    if public_key_type == "RSA" and public_key_bits < 3072:
-        return "B"
 
     if tls_version == "TLSv1.2" and cipher_suite.startswith("TLS_RSA_"):
         return "B"
@@ -275,12 +256,12 @@ def grade_finding(finding):
 
 
 def calculate_host_grade(findings):
-    grade_order = {"A+": 0, "A": 1, "B": 2, "C": 3, "D": 4, "F": 5}
     grades = [grade_finding(finding) for finding in findings]
+    grades = [grade for grade in grades if grade in GRADE_ORDER]
     if not grades:
-        return "F"
+        return "NOT_EVALUATED"
 
-    worst_grade = max(grades, key=grade_order.get)
+    worst_grade = max(grades, key=GRADE_ORDER.get)
     has_tls_1_3 = any(
         finding["tls_version"] == "TLSv1.3" for finding in findings
     )
@@ -289,11 +270,50 @@ def calculate_host_grade(findings):
     return worst_grade
 
 
-def apply_endpoint_grades(results, findings):
-    endpoint_grades = {
-        endpoint: calculate_host_grade(endpoint_findings)
-        for endpoint, endpoint_findings in findings.items()
-    }
+def assess_endpoint_grade(findings, identity_status="NOT_TESTED"):
+    """Return display, crypto and PKI grades without conflating their meanings."""
+    crypto_grade = calculate_host_grade(findings)
+    issues = []
+    for finding in findings:
+        trust = finding.get("trust_classification")
+        revoked = finding.get("revocation_status") == "REVOKED"
+        try:
+            expired = datetime.strptime(finding.get("cert_validity", ""), "%Y-%m-%d") < datetime.now()
+        except (TypeError, ValueError):
+            expired = False
+        if revoked:
+            issues.append("REVOKED")
+        if trust == "ERROR":
+            issues.append("ERROR")
+        if expired:
+            issues.append("EXPIRED")
+        if trust == "UNTRUSTED":
+            issues.append("UNTRUSTED")
+    if identity_status == "FAIL":
+        issues.append("NAME_MISMATCH")
+    if issues:
+        priority = ("REVOKED", "EXPIRED", "UNTRUSTED", "NAME_MISMATCH", "ERROR")
+        pki_status = next((status for status in priority if status in issues), "INCONCLUSIVE")
+    elif any(f.get("trust_classification") == "PUBLIC_TRUSTED" for f in findings):
+        pki_status = "TRUSTED_PUBLIC"
+    elif any(f.get("trust_classification") == "PRIVATE_TRUSTED" for f in findings):
+        pki_status = "TRUSTED_PRIVATE"
+    elif identity_status in {"ERROR", "INCONCLUSIVE"}:
+        pki_status = "INCONCLUSIVE"
+    else:
+        pki_status = "NOT_TESTED"
+    display_grade = "T" if any(status in issues for status in ("UNTRUSTED", "EXPIRED", "REVOKED")) else "M" if "NAME_MISMATCH" in issues else crypto_grade
+    return {"crypto_grade": crypto_grade, "display_grade": display_grade, "pki_status": pki_status, "pki_issues": sorted(set(issues)), "grade_version": GRADE_VERSION}
+
+
+def apply_endpoint_grades(results, findings, grade_assessments=None, tls_check_results=None):
+    grade_assessments = grade_assessments if grade_assessments is not None else {}
+    tls_check_results = tls_check_results or {}
+    for endpoint, endpoint_findings in findings.items():
+        endpoint_id = f"{endpoint[0]}:{endpoint[1]}/tcp"
+        identity_status = next((item.status for item in tls_check_results.get(endpoint_id, ()) if item.check_id == "hostname_san"), "NOT_TESTED")
+        grade_assessments[endpoint_id] = assess_endpoint_grade(endpoint_findings, identity_status)
+    endpoint_grades = {endpoint: grade_assessments[f"{endpoint[0]}:{endpoint[1]}/tcp"]["display_grade"] for endpoint in findings}
     for row in results:
         # A grade belongs to one IP and port, not to the whole host.
         row.insert(3, endpoint_grades[(row[0], row[2])])

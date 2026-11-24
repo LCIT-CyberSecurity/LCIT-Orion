@@ -29,7 +29,7 @@ SEVERITY_ORDER = {
     "low": 3,
     "informational": 4,
 }
-GRADE_ORDER = {"A+": 0, "A": 1, "B": 2, "C": 3, "D": 4, "F": 5, "Not Tested": 6}
+GRADE_ORDER = {"A+": 0, "A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "T": 7, "M": 8, "Not Tested": 9, "NOT_EVALUATED": 10}
 TLS_VERSIONS = ("SSL 2.0", "SSL 3.0", "TLS 1.0", "TLS 1.1", "TLS 1.2", "TLS 1.3")
 
 
@@ -140,6 +140,10 @@ class EndpointReport:
     port: str
     protocol: str
     overall_grade: str
+    crypto_grade: str
+    pki_status: str
+    pki_issues: tuple[str, ...]
+    grade_version: str
     compliance_status: str
     highest_severity: str
     finding_ids: tuple[str, ...]
@@ -382,6 +386,12 @@ FINDING_DEFINITIONS = {
         "Clients using the configured trust stores may reject the service or require unsafe trust exceptions.",
         "Deploy a certificate chain issued by a configured public or corporate trust anchor, including required intermediates.",
     ),
+    "CERTIFICATE_NAME_MISMATCH": (
+        "Certificate Name Mismatch", "PKI", "high",
+        "The certificate identity does not match a DNS name or IP address explicitly requested for this endpoint.",
+        "Clients may connect to the wrong service or reject the certificate identity.",
+        "Deploy a certificate whose SAN entries cover the requested service identity.",
+    ),
     "CERTIFICATE_REVOKED": (
         "Certificate Revoked", "PKI", "high",
         "The endpoint certificate was reported as revoked by an OCSP responder or CRL.",
@@ -601,6 +611,13 @@ def build_report_model(
         host_id = hostname or ip_address
         compliance = endpoint_status(endpoint_rows)
         grade = str(row_value(first, indexes, "grade", "Not Tested") or "Not Tested")
+        grade_assessment = job.grade_assessments.get(endpoint_id, {})
+        crypto_grade = grade_assessment.get("crypto_grade", grade)
+        pki_status = grade_assessment.get("pki_status", "NOT_TESTED")
+        pki_issues = tuple(grade_assessment.get("pki_issues", ()))
+        grade_version = grade_assessment.get("grade_version", "legacy")
+        if "NAME_MISMATCH" in pki_issues:
+            compliance = "non_compliant"
         supported_versions = sorted(
             {normalize_tls_version(row_value(row, row_indexes(row, job.crypto), "tls")) for row in endpoint_rows}
         )
@@ -613,6 +630,11 @@ def build_report_model(
         certificate = build_certificate(first, indexes, job.certificate_expires_within_days, trust_result, revocation_result)
         cipher_suites = []
         endpoint_finding_ids: set[str] = set()
+        if "NAME_MISMATCH" in pki_issues:
+            identity = next((item for item in job.tls_check_results.get(endpoint_id, ()) if item.check_id == "hostname_san" and item.status == "FAIL"), None)
+            evidence = "; ".join(identity.evidence) if identity else "Requested identity did not match the certificate SAN."
+            endpoint_finding_ids.add("CERTIFICATE_NAME_MISMATCH")
+            add_finding(grouped_findings, occurrences, "CERTIFICATE_NAME_MISMATCH", endpoint_id, evidence, "KO", policy_ids, scan_timestamp)
         untested_checks = ["Hostname validation", "SAN validation"]
         if any(item.check_id == "hostname_san" and item.status in ("PASS", "FAIL") for item in job.tls_check_results.get(endpoint_id, ())):
             untested_checks = []  # the complementary identity check established the verdict for the name and the SAN
@@ -664,9 +686,9 @@ def build_report_model(
             elif certificate.remaining_days <= job.certificate_expires_within_days:
                 endpoint_finding_ids.add("CERTIFICATE_EXPIRING_SOON")
                 add_finding(grouped_findings, occurrences, "CERTIFICATE_EXPIRING_SOON", endpoint_id, f"Certificate expires in {certificate.remaining_days} day(s)", "WARNING", policy_ids, scan_timestamp)
-        if certificate.self_signed == "yes":
+        if certificate.self_signed == "yes" and certificate.trust_classification not in {"PUBLIC_TRUSTED", "PRIVATE_TRUSTED"}:
             endpoint_finding_ids.add("CERTIFICATE_SELF_SIGNED")
-            add_finding(grouped_findings, occurrences, "CERTIFICATE_SELF_SIGNED", endpoint_id, certificate.subject, "KO", policy_ids, scan_timestamp)
+            add_finding(grouped_findings, occurrences, "CERTIFICATE_SELF_SIGNED", endpoint_id, certificate.subject, "WARNING", policy_ids, scan_timestamp)
         if certificate.trust_classification == TRUST_UNTRUSTED:
             endpoint_finding_ids.add("CERTIFICATE_CHAIN_UNTRUSTED")
             add_finding(grouped_findings, occurrences, "CERTIFICATE_CHAIN_UNTRUSTED", endpoint_id, "No enabled trust store validated the certificate chain", "KO", policy_ids, scan_timestamp)
@@ -706,6 +728,10 @@ def build_report_model(
             port=port,
             protocol="tcp",
             overall_grade=grade,
+            crypto_grade=crypto_grade,
+            pki_status=pki_status,
+            pki_issues=pki_issues,
+            grade_version=grade_version,
             compliance_status=compliance,
             highest_severity=highest_severity,
             finding_ids=tuple(sorted(endpoint_finding_ids, key=lambda item: (SEVERITY_ORDER.get(grouped_findings[item]["severity"], 9), item))),
@@ -825,7 +851,7 @@ def build_statistics(
     non_compliant = sum(1 for endpoint in endpoints if endpoint.compliance_status == "non_compliant")
     with_errors = sum(1 for endpoint in endpoints if endpoint.compliance_status == "error" or endpoint.errors)
     not_tested = sum(1 for endpoint in endpoints if endpoint.compliance_status == "not_tested")
-    grade_distribution = {grade: 0 for grade in ("A+", "A", "B", "C", "D", "F")}
+    grade_distribution = {grade: 0 for grade in ("A+", "A", "B", "C", "D", "E", "F", "T", "M")}
     for endpoint in endpoints:
         if endpoint.overall_grade in grade_distribution:
             grade_distribution[endpoint.overall_grade] += 1
@@ -944,6 +970,11 @@ def build_metadata_document(model: ReportModel, basename: str, written_files: li
         "endpoint_trust": [
             {
                 "endpoint_id": endpoint.endpoint_id,
+                "display_grade": endpoint.overall_grade,
+                "crypto_grade": endpoint.crypto_grade,
+                "pki_status": endpoint.pki_status,
+                "pki_issues": list(endpoint.pki_issues),
+                "grade_version": endpoint.grade_version,
                 "trust_classification": endpoint.certificate.trust_classification,
                 "trusted_by": list(endpoint.certificate.trusted_by),
                 "trust_anchor": endpoint.certificate.trust_anchor,

@@ -4,7 +4,7 @@
   const data = JSON.parse(document.getElementById('report-data').textContent);
   const $ = (id) => document.getElementById(id);
   const severityOrder = {critical:0, high:1, medium:2, low:3, informational:4, none:5};
-  const gradeOrder = {'A+':0, A:1, B:2, C:3, D:4, F:5, 'Not Tested':6};
+  const gradeOrder = {'A+':0, A:1, B:2, C:3, D:4, E:5, F:6, T:7, M:8, 'Not Tested':9, NOT_EVALUATED:10};
   const tlsOrder = ['SSL 2.0','SSL 3.0','TLS 1.0','TLS 1.1','TLS 1.2','TLS 1.3'];
   const certOrder = ['Valid','Expiring soon','Expired','Revoked','Self-signed','Weak key','Weak signature','Validation not tested'];
   const expirationOrder = ['Already expired','Within 7 days','Within 30 days','Within 60 days','Within 90 days','After 90 days'];
@@ -622,7 +622,7 @@
   }
 
   function endpointScore(endpoint){
-    const gradeScores = {'A+':100, A:95, B:80, C:65, D:50, F:0, 'Not Tested':0};
+    const gradeScores = {'A+':100, A:95, B:80, C:65, D:50, E:25, F:0, T:0, M:0, 'Not Tested':0, NOT_EVALUATED:0};
     const gradeScore = gradeScores[endpoint.overall_grade] ?? 0;
     const suites = endpoint.cipher_suites || [];
     if(!suites.length) return gradeScore;
@@ -752,11 +752,13 @@
       ['Findings', summary.findings],
     ]));
     root.append(el('h3','','Endpoints'));
-    root.append(table(['Endpoint','IP','Port','TLS Grade','Score','Compliance','Protocols','Findings','Details'], group.endpoints.map((endpoint) => [
+    root.append(table(['Endpoint','IP','Port','Display Grade','Crypto Grade','PKI Status','Score','Compliance','Protocols','Findings','Details'], group.endpoints.map((endpoint) => [
       endpoint.endpoint_id,
       endpoint.ip_address,
       `${endpoint.port}/${endpoint.protocol}`,
       endpoint.overall_grade,
+      endpoint.crypto_grade,
+      `${endpoint.pki_status}${endpoint.pki_issues?.length ? ` · ${endpoint.pki_issues.join(', ')}` : ''}`,
       `${endpointScore(endpoint)}/100`,
       endpoint.compliance_status,
       (endpoint.supported_tls_versions || []).join(', ') || 'Not Tested',
@@ -920,7 +922,7 @@
     const root = $('drawerContent');
     root.textContent = '';
     root.append(el('h2','',`${endpoint.hostname}:${endpoint.port}`));
-    root.append(table(['Field','Value'], [['Endpoint ID', endpoint.endpoint_id], ['IP address', endpoint.ip_address], ['Protocol', endpoint.protocol], ['TLS Grade', endpoint.overall_grade], ['Compliance Status', endpoint.compliance_status], ['Findings', endpoint.finding_count], ['Highest Severity', endpoint.highest_severity]]));
+    root.append(table(['Field','Value'], [['Endpoint ID', endpoint.endpoint_id], ['IP address', endpoint.ip_address], ['Protocol', endpoint.protocol], ['Display Grade', endpoint.overall_grade], ['Cryptographic Grade', endpoint.crypto_grade], ['PKI Status', endpoint.pki_status], ['Grade Version', endpoint.grade_version], ['Compliance Status', endpoint.compliance_status], ['Findings', endpoint.finding_count], ['Highest Severity', endpoint.highest_severity]]));
     root.append(el('h3','','Security Breakdown'), table(['Area','Result'], Object.entries(endpoint.security_breakdown)));
     root.append(el('h3','','Findings'), table(['Finding'], endpoint.finding_ids.map((finding) => [finding])));
     root.append(el('h3','','TLS Versions'), table(['Version','Status'], Object.entries(endpoint.tls_versions)));

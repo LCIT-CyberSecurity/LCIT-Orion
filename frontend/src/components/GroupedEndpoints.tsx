@@ -6,7 +6,7 @@ import type { Column } from "./DataTable";
 import { TagList } from "./common";
 import { Badge } from "./ui/badge";
 
-const GRADES = ["A+", "A", "B", "C", "D", "E", "F"];
+const GRADES = ["A+", "A", "B", "C", "D", "E", "F", "T", "M"];
 const hostOf = (e: Endpoint) => e.hostname || e.ip_address;
 const worstGrade = (list: Endpoint[]) => list.map((e) => e.grade).filter((g) => GRADES.includes(g)).sort((a, b) => GRADES.indexOf(b) - GRADES.indexOf(a))[0] ?? "—";
 

@@ -146,7 +146,7 @@ def collect_job_results(job, targets, logger, nmap, tqdm, cancel_event=None, on_
         logger.info("tls_scan_done targets=%s ports=%s", targets, job.ports)
 
     emit("phase", {"phase": "grading"})
-    apply_endpoint_grades(results, findings)
+    apply_endpoint_grades(results, findings, job.grade_assessments, job.tls_check_results)
     logger.info("scan_results endpoints=%s rows=%s", len(findings), len(results))
     return results, findings
 

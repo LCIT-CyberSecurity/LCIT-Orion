@@ -110,7 +110,7 @@ def write_exports(results, job, scan_timestamp, export_paths, scan_duration_seco
         export_path.parent.mkdir(parents=True, exist_ok=True)
         if export_format == "cbom":
             with export_path.open("w", encoding="utf-8") as file:
-                json.dump(build_cbom(results, pqc=job.crypto == "pqc"), file, indent=2)
+                json.dump(build_cbom(results, pqc=job.crypto == "pqc", grade_assessments=job.grade_assessments), file, indent=2)
                 file.write("\n")
         elif export_format == "md":
             (export_path.parent / "assets" / "images").mkdir(parents=True, exist_ok=True)
