@@ -455,6 +455,7 @@ export const fr: Messages = {
   "run.openHtml": "Ouvrir le rapport HTML",
   "run.partial": "Ce scan est partiel : certaines cibles ou certains contrôles n'ont pas abouti.",
   "ipsec.results": "Observations VPN IPsec / IKE",
+  "ipsec.probeErrors": "Erreurs locales de sonde IKE (pas des services détectés)",
   "ipsec.parallelism": "Sondes simultanées (1–16)",
   "ipsec.parallelismHint": "La valeur par défaut est 4. Une valeur plus élevée accélère les scans de cibles silencieuses, avec davantage de charge réseau. ",
   "service.title": "Contrôles complémentaires",

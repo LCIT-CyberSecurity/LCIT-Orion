@@ -454,6 +454,7 @@ export const en = {
   "run.openHtml": "Open HTML report",
   "run.partial": "This scan is partial: some targets or checks were not completed.",
   "ipsec.results": "VPN IPsec / IKE observations",
+  "ipsec.probeErrors": "Local IKE probe errors (not detected services)",
   "ipsec.parallelism": "Concurrent probes (1–16)",
   "ipsec.parallelismHint": "The default is 4. Higher values shorten silent-target scans while increasing network load. ",
   "service.title": "Complementary controls",
