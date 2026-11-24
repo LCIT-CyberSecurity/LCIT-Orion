@@ -444,6 +444,8 @@ export const en = {
   "run.errors": "Errors",
   "run.finding": "Finding",
   "run.findings": "Findings",
+  "run.recommendation": "Recommendation",
+  "run.noRecommendation": "No recommendation documented",
   "run.grade": "Grade",
   "run.cryptoGrade": "Crypto grade",
   "run.pkiStatus": "PKI status",

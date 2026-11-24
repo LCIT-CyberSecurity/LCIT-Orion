@@ -445,6 +445,8 @@ export const de: Messages = {
   "run.errors": "Fehler",
   "run.finding": "Befund",
   "run.findings": "Befunde",
+  "run.recommendation": "Empfehlung",
+  "run.noRecommendation": "Keine Empfehlung dokumentiert",
   "run.grade": "Bewertung",
   "run.cryptoGrade": "Kryptobewertung",
   "run.pkiStatus": "PKI-Status",
