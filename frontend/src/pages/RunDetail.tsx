@@ -10,6 +10,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { DataTable, type Column } from "../components/DataTable";
 import { GroupedEndpoints } from "../components/GroupedEndpoints";
+import { GradeBadge } from "../components/GradeBadge";
 import { IpsecObservations } from "../components/IpsecObservations";
 import { PkiTrust } from "../components/PkiTrust";
 import { ScanProgress } from "../components/ScanProgress";
@@ -25,14 +26,17 @@ function endpointColumns(t: (key: never) => string): Column<Endpoint>[] {
   return [
     { key: "endpoint", header: "Endpoint", values: (e) => [e.hostname || e.ip_address], sort: endpointLabel, render: (e) => <span className="row-link">{endpointLabel(e)}</span> },
     { key: "tags", header: tr("col.tags"), values: (e) => e.tags ?? [], render: (e) => (e.tags?.length ? <TagList tags={e.tags} /> : "—") },
-    { key: "grade", header: tr("run.grade"), values: (e) => [e.grade, e.crypto_grade ?? "NOT_EVALUATED", e.pki_status ?? "NOT_TESTED"], render: (e) => <span title={`${tr("run.cryptoGrade")}: ${e.crypto_grade ?? "NOT_EVALUATED"} · ${tr("run.pkiStatus")}: ${e.pki_status ?? "NOT_TESTED"} · ${(e.pki_issues ?? []).join(", ")}`}>{e.grade}<br /><span className="text-xs text-muted">{tr("run.cryptoGrade")}: {e.crypto_grade ?? "NOT_EVALUATED"} · {tr(`pki.${e.pki_status ?? "NOT_TESTED"}` as never)}</span></span> },
+    { key: "crypto", header: tr("run.cryptoGrade"), values: (e) => [e.crypto_grade ?? "NOT_EVALUATED"], sort: (e) => gradeRank(e.crypto_grade), render: (e) => <GradeBadge grade={e.crypto_grade} title={tr("run.cryptoGrade")} /> },
     { key: "exposure", header: tr("exposure.state"), values: (e) => [e.exposure?.state ?? "unknown"], render: (e) => <span className="text-xs" title={[e.exposure?.source, e.exposure?.evidence_method, e.exposure?.justification].filter(Boolean).join(" · ")}>{tr(`exposure.${e.exposure?.state ?? "unknown"}`)}{e.exposure?.validated ? ` · ${tr("exposure.validated")}` : ""}</span> },
     { key: "status", header: tr("col.status"), values: (e) => [e.compliance_status], render: (e) => e.compliance_status },
     { key: "tls", header: "TLS", values: (e) => e.tls_versions, sort: (e) => e.tls_versions.join(", "), render: (e) => e.tls_versions.join(", ") },
-    { key: "cert", header: tr("run.certificate"), values: (e) => [String(e.certificate.subject ?? "")], sort: (e) => String(e.certificate.valid_until ?? ""),
-      render: (e) => <span className="text-xs">{String(e.certificate.subject ?? "")}<br /><span className="text-muted">{String(e.certificate.valid_until ?? "")}</span></span> },
+    { key: "cert", header: tr("run.certificate"), values: (e) => [e.grade === "T" || e.grade === "M" ? e.grade : e.certificate.trust_classification ?? "NOT_TESTED", String(e.certificate.subject ?? "")], sort: (e) => String(e.certificate.valid_until ?? ""),
+      render: (e) => <div className="space-y-1"><div className="flex items-center gap-2">{(e.grade === "T" || e.grade === "M") && <GradeBadge grade={e.grade} title={`${tr("run.pkiStatus")}: ${tr(`pki.${e.pki_status ?? "NOT_TESTED"}` as never)}${e.pki_issues?.length ? ` · ${e.pki_issues.join(", ")}` : ""}`} />}<span className="text-xs">{tr(`pki.${e.pki_status ?? e.certificate.trust_classification ?? "NOT_TESTED"}` as never)}</span></div><span className="text-xs">{String(e.certificate.subject ?? "—")}<br /><span className="text-muted">{String(e.certificate.valid_until ?? "")}</span></span></div> },
   ];
 }
+
+const GRADE_ORDER = ["A+", "A", "B", "C", "D", "E", "F"];
+const gradeRank = (grade?: string) => { const index = GRADE_ORDER.indexOf(grade ?? ""); return index < 0 ? GRADE_ORDER.length : index; };
 
 type TlsCheckRow = { endpoint: string; check: TlsCheckResult };
 const TLS_STATUS_TONE: Record<string, "success" | "danger" | "warning" | "neutral"> = { PASS: "success", FAIL: "danger", ERROR: "danger", INCONCLUSIVE: "warning", NOT_TESTED: "warning", NOT_APPLICABLE: "neutral" };
@@ -105,7 +109,7 @@ export default function RunDetail() {
   // Back to where the user came from (History, Reports with its filters, dashboard, map...); a page opened directly
   // (link, new tab) has no previous entry in the application, so it goes to the scan history instead of leaving it.
   const goBack = () => (location.key === "default" ? navigate("/scans?tab=history") : navigate(-1));
-  const [byHost, setByHost] = useState(true);
+  const [byHost, setByHost] = useState(false);
   const [params] = useSearchParams();
   const withRun = params.get("compare") ?? undefined;   // set by the dashboard evolution card: compare with that scan instead of the previous one
   const [cmp, setCmp] = useState(!!withRun);
