@@ -4,7 +4,7 @@ Headless execution interface of the scan engine.
 Called by:
 - `tls_scanner.cli.run_job`, which shares `collect_job_results` so the CLI and the WebUI worker
   run exactly the same scan code;
-- the WebUI worker (`backend/src/tls_scan_app/workers`), through `execute_scan`.
+- the WebUI worker (`backend/src/orion_app/workers`), through `execute_scan`.
 
 Produces:
 - `ScanOutcome`: result rows, endpoint findings, written files, the structured report model,
@@ -146,7 +146,7 @@ def collect_job_results(job, targets, logger, nmap, tqdm, cancel_event=None, on_
         logger.info("tls_scan_done targets=%s ports=%s", targets, job.ports)
 
     emit("phase", {"phase": "grading"})
-    apply_endpoint_grades(results, findings)
+    apply_endpoint_grades(results, findings, job.grade_assessments, job.tls_check_results)
     logger.info("scan_results endpoints=%s rows=%s", len(findings), len(results))
     return results, findings
 

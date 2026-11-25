@@ -6,7 +6,7 @@ import { Note } from "./common";
 import { Badge } from "./ui/badge";
 import { Card, CardHeader, CardTitle } from "./ui/card";
 
-const TONE: Record<TrustClass, "success" | "primary" | "danger" | "neutral" | "warning"> = { PUBLIC_TRUSTED: "success", PRIVATE_TRUSTED: "primary", UNTRUSTED: "danger", NOT_TESTED: "neutral", ERROR: "warning" };
+const TONE: Record<TrustClass, "success" | "primary" | "danger" | "neutral" | "warning"> = { PUBLIC_TRUSTED: "success", PRIVATE_TRUSTED: "primary", UNTRUSTED: "warning", NOT_TESTED: "neutral", ERROR: "warning" };
 const label = (e: Endpoint) => `${e.hostname || e.ip_address}:${e.port}`;
 const str = (v: unknown) => (v === null || v === undefined || v === "" ? "" : String(v));
 

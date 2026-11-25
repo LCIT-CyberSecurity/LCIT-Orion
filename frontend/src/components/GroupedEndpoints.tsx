@@ -5,10 +5,11 @@ import { useI18n } from "../i18n";
 import type { Column } from "./DataTable";
 import { TagList } from "./common";
 import { Badge } from "./ui/badge";
+import { GradeBadge } from "./GradeBadge";
 
-const GRADES = ["A+", "A", "B", "C", "D", "E", "F"];
+const GRADES = ["A+", "A", "B", "C", "D", "E", "F", "T", "M"];
 const hostOf = (e: Endpoint) => e.hostname || e.ip_address;
-const worstGrade = (list: Endpoint[]) => list.map((e) => e.grade).filter((g) => GRADES.includes(g)).sort((a, b) => GRADES.indexOf(b) - GRADES.indexOf(a))[0] ?? "—";
+const worstGrade = (list: Endpoint[], key: "grade" | "crypto_grade") => list.map((e) => key === "grade" ? e.grade : e.crypto_grade ?? "NOT_EVALUATED").filter((g) => GRADES.includes(g)).sort((a, b) => GRADES.indexOf(b) - GRADES.indexOf(a))[0] ?? "—";
 
 /** Endpoints of the same host (several ports) on one row with a chevron; a host with a single endpoint stays a plain row. */
 export function GroupedEndpoints({ rows, columns }: { rows: Endpoint[]; columns: Column<Endpoint>[] }) {
@@ -26,10 +27,13 @@ export function GroupedEndpoints({ rows, columns }: { rows: Endpoint[]; columns:
     const expiry = list.map((e) => String(e.certificate.valid_until ?? "")).filter(Boolean).sort()[0];
     switch (key) {
       case "tags": return list[0].tags?.length ? <TagList tags={list[0].tags} /> : "—";
-      case "grade": return worstGrade(list);
+      case "crypto": return <GradeBadge grade={worstGrade(list, "crypto_grade")} />;
       case "status": return nonCompliant ? <>{nonCompliant}/{list.length} non_compliant</> : list.every((e) => e.compliance_status === list[0].compliance_status) ? list[0].compliance_status : "—";
       case "tls": return [...new Set(list.flatMap((e) => e.tls_versions))].sort().join(", ");
-      case "cert": return expiry ? <span className="text-xs text-muted">{expiry}</span> : "—";
+      case "cert": {
+        const grade = list.map((e) => e.grade).find((g) => g === "T" || g === "M");
+        return <span className="flex items-center gap-2">{grade && <GradeBadge grade={grade} />}<span className="text-xs text-muted">{expiry || "—"}</span></span>;
+      }
       default: return null;
     }
   };

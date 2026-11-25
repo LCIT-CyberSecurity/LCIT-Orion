@@ -50,6 +50,7 @@ html:has(.login-page), body:has(.login-page) { background:#081a30; }
 }
 
 .login-card .login-sso--primary { justify-content:center; min-height:52px; text-decoration:none; }
+.login-card .login-sso--secondary { display:flex; justify-content:center; min-height:44px; margin-top:14px; border:1px solid #dce2ec; color:#344054; text-decoration:none; }
 .login-credentials { display:grid; gap:16px; }
 .login-methods { padding-top:2px; color:#536178; font-size:14px; }
 .login-methods summary { width:max-content; max-width:100%; color:#65459b; font-weight:600; text-decoration:underline; text-decoration-color:#c9bedf; text-underline-offset:3px; cursor:pointer; }

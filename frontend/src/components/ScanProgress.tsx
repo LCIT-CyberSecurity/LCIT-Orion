@@ -60,7 +60,7 @@ export function ScanProgress({ run }: { run: Run }) {
                 <span className="mt-0.5 shrink-0" aria-hidden>{state === "done" ? <Check className="size-4 text-success" /> : state === "current" ? <Loader2 className="size-4 animate-spin text-primary" /> : <Circle className="size-4" />}</span>
                 <span><span className={state === "current" ? "font-semibold" : "font-medium"}>{tr(`prog.step.${step}`)}</span>
                   {plan && <span className="block text-xs text-muted">{what(step)}</span>}
-                  {state === "current" && step === "tls_scan" && hosts && <span className="mt-1 block text-xs"><progress className="w-full" max={hosts.hosts_total} value={hosts.hosts_done} aria-label={t("prog.hosts", { done: hosts.hosts_done, total: hosts.hosts_total })} />{t("prog.hosts", { done: hosts.hosts_done, total: hosts.hosts_total })}</span>}
+                  {state === "current" && step === "tls_scan" && hosts?.hosts_total != null && <span className="mt-1 block text-xs"><progress className="w-full" max={hosts.hosts_total} value={hosts.hosts_done} aria-label={t("prog.hosts", { done: hosts.hosts_done, total: hosts.hosts_total })} />{t("prog.hosts", { done: hosts.hosts_done, total: hosts.hosts_total })}</span>}
                 </span>
               </li>
             );

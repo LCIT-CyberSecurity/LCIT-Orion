@@ -4,7 +4,7 @@
   const data = JSON.parse(document.getElementById('report-data').textContent);
   const $ = (id) => document.getElementById(id);
   const severityOrder = {critical:0, high:1, medium:2, low:3, informational:4, none:5};
-  const gradeOrder = {'A+':0, A:1, B:2, C:3, D:4, F:5, 'Not Tested':6};
+  const gradeOrder = {'A+':0, A:1, B:2, C:3, D:4, E:5, F:6, T:7, M:8, 'Not Tested':9, NOT_EVALUATED:10};
   const tlsOrder = ['SSL 2.0','SSL 3.0','TLS 1.0','TLS 1.1','TLS 1.2','TLS 1.3'];
   const certOrder = ['Valid','Expiring soon','Expired','Revoked','Self-signed','Weak key','Weak signature','Validation not tested'];
   const expirationOrder = ['Already expired','Within 7 days','Within 30 days','Within 60 days','Within 90 days','After 90 days'];
@@ -106,7 +106,7 @@
   }
 
   function safeFilename(value){
-    return String(value || 'tls_scan_report').replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '') || 'tls_scan_report';
+    return String(value || 'orion_report').replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '') || 'orion_report';
   }
 
   function downloadCsv(){
@@ -622,7 +622,7 @@
   }
 
   function endpointScore(endpoint){
-    const gradeScores = {'A+':100, A:95, B:80, C:65, D:50, F:0, 'Not Tested':0};
+    const gradeScores = {'A+':100, A:95, B:80, C:65, D:50, E:25, F:0, T:0, M:0, 'Not Tested':0, NOT_EVALUATED:0};
     const gradeScore = gradeScores[endpoint.overall_grade] ?? 0;
     const suites = endpoint.cipher_suites || [];
     if(!suites.length) return gradeScore;
@@ -655,6 +655,8 @@
     const scores = endpoints.map(endpointScore);
     const score = scores.length ? Math.round(scores.reduce((total, item) => total + item, 0) / scores.length) : 0;
     const worstGrade = endpoints.reduce((worst, endpoint) => (gradeOrder[endpoint.overall_grade] ?? 99) > (gradeOrder[worst] ?? 99) ? endpoint.overall_grade : worst, endpoints[0].overall_grade);
+    const cryptoGrade = (endpoint) => endpoint.crypto_grade || (['T', 'M'].includes(endpoint.overall_grade) ? 'Not Tested' : endpoint.overall_grade);
+    const worstCryptoGrade = endpoints.reduce((worst, endpoint) => (gradeOrder[cryptoGrade(endpoint)] ?? 99) > (gradeOrder[worst] ?? 99) ? cryptoGrade(endpoint) : worst, cryptoGrade(endpoints[0]));
     const highestSeverity = endpoints.reduce((worst, endpoint) => (severityOrder[endpoint.highest_severity] ?? 9) < (severityOrder[worst] ?? 9) ? endpoint.highest_severity : worst, endpoints[0].highest_severity);
     const findings = endpoints.reduce((total, endpoint) => total + Number(endpoint.finding_count || 0), 0);
     const failed = endpoints.filter((endpoint) => endpoint.compliance_status !== 'compliant').length;
@@ -662,7 +664,14 @@
     const protocols = Array.from(new Set(endpoints.flatMap((endpoint) => endpoint.supported_tls_versions || [])));
     const certStatuses = Array.from(new Set(endpoints.map((endpoint) => endpoint.certificate.status).filter(Boolean)));
     const trust = Array.from(new Set(endpoints.map((endpoint) => endpoint.certificate.trust_classification).filter(Boolean)));
-    return {score, worstGrade, highestSeverity, findings, failed, ports, protocols, certStatuses, trust};
+    const commonNames = Array.from(new Set(endpoints.map((endpoint) => certificateCommonName(endpoint.certificate.subject)).filter(Boolean)));
+    const certificateGrade = endpoints.some((endpoint) => endpoint.overall_grade === 'T') ? 'T' : '—';
+    return {score, worstGrade, worstCryptoGrade, certificateGrade, highestSeverity, findings, failed, ports, protocols, certStatuses, trust, commonNames};
+  }
+
+  function certificateCommonName(subject){
+    const match = String(subject || '').match(/(?:^|[,/])\s*CN\s*=\s*((?:\\.|[^,/])*)/i);
+    return match ? match[1].replace(/\\([,/=+<>#;\\])/g, '$1').trim() : '';
   }
 
   function portList(ports){
@@ -691,7 +700,14 @@
     identity.append(valueNode(group.host, 'endpoint-host'), valueNode(`${group.endpoints[0].ip_address} · ${summary.ports.join(', ')}`, 'endpoint-address'));
     identity.append(portList(summary.protocols));
     const state = el('div','endpoint-state');
-    state.append(statusBadge(summary.failed ? 'Non-compliant' : 'Compliant'), valueNode(`Certificate: ${summary.certStatuses.join(', ') || 'Not Tested'} · ${summary.trust.join(', ') || 'Trust not tested'}`, 'endpoint-cert'));
+    state.append(statusBadge(summary.failed ? 'Non-compliant' : 'Compliant'), valueNode(`Encryption grade: ${summary.worstCryptoGrade}`, 'endpoint-grade'));
+    const certificateColumns = el('div','endpoint-certificate-columns');
+    const trustGrade = el('div','endpoint-certificate-cell');
+    trustGrade.append(el('span','endpoint-certificate-label','Certificate grade (T)'), valueNode(summary.certificateGrade, 'endpoint-grade'));
+    const commonName = el('div','endpoint-certificate-cell');
+    commonName.append(el('span','endpoint-certificate-label','Common Name'), valueNode(summary.commonNames.join(', ') || 'Not present', 'endpoint-certificate-value'));
+    certificateColumns.append(trustGrade, commonName);
+    state.append(certificateColumns, valueNode(`Trust status: ${summary.trust.join(', ') || 'Not tested'}`, 'endpoint-cert'), valueNode(`Certificate: ${summary.certStatuses.join(', ') || 'Not Tested'}`, 'endpoint-cert'));
     const risk = el('div','endpoint-risk');
     risk.append(valueNode(`High ${counts.critical + counts.high}`, severityClass(counts.critical + counts.high ? 'high' : 'none')), valueNode(`Medium ${counts.medium}`, severityClass(counts.medium ? 'medium' : 'none')), valueNode(`${summary.findings} findings`, 'muted'));
     const action = button('View details', () => openHostEndpoints(group), 'text-button no-print');
@@ -752,11 +768,13 @@
       ['Findings', summary.findings],
     ]));
     root.append(el('h3','','Endpoints'));
-    root.append(table(['Endpoint','IP','Port','TLS Grade','Score','Compliance','Protocols','Findings','Details'], group.endpoints.map((endpoint) => [
+    root.append(table(['Endpoint','IP','Port','Display Grade','Crypto Grade','PKI Status','Score','Compliance','Protocols','Findings','Details'], group.endpoints.map((endpoint) => [
       endpoint.endpoint_id,
       endpoint.ip_address,
       `${endpoint.port}/${endpoint.protocol}`,
       endpoint.overall_grade,
+      endpoint.crypto_grade,
+      `${endpoint.pki_status}${endpoint.pki_issues?.length ? ` · ${endpoint.pki_issues.join(', ')}` : ''}`,
       `${endpointScore(endpoint)}/100`,
       endpoint.compliance_status,
       (endpoint.supported_tls_versions || []).join(', ') || 'Not Tested',
@@ -794,6 +812,8 @@
       });
       const rows = endpoints.map((endpoint) => [
         endpoint.endpoint_id,
+        endpoint.overall_grade === 'T' ? 'T' : '—',
+        certificateCommonName(endpoint.certificate.subject) || 'Not present',
         endpoint.certificate.subject,
         endpoint.certificate.valid_until,
         `${endpoint.certificate.key_type} ${endpoint.certificate.key_size || ''}`.trim(),
@@ -807,7 +827,7 @@
         endpoint.certificate.chain_validation_status,
         endpoint.certificate.revocation_status,
       ]);
-      $('certificateTable').replaceChildren(table(['Endpoint','Subject','Expiration','Key','Trust','Hostname validation','Issuer','SAN','Trusted by','Trust anchor','Signature','Chain validation','Revocation'], rows, {filterable:true}));
+      $('certificateTable').replaceChildren(table(['Endpoint','Certificate grade (T)','Common Name','Subject','Expiration','Key','Trust','Hostname validation','Issuer','SAN','Trusted by','Trust anchor','Signature','Chain validation','Revocation'], rows, {filterable:true}));
     };
     [status, sort].forEach((node) => node.addEventListener('change', render));
     render();
@@ -827,7 +847,7 @@
       ['PRIVATE_TRUSTED', 'Validated by a configured private store.'],
       ['UNTRUSTED', 'No executed trust store validated the chain.'],
       ['NOT_TESTED', 'Trust validation was not executed or inconclusive.'],
-      ['ERROR', 'A technical error prevented TLS Scan from reaching a conclusive trust result.'],
+      ['ERROR', 'A technical error prevented Orion from reaching a conclusive trust result.'],
     ];
     const wrap = el('div','trust-definition-grid');
     definitions.forEach(([label, text]) => {
@@ -886,7 +906,7 @@
       item.append(el('span','',key), el('strong','',value));
       root.append(item);
     });
-    root.append(el('p','muted','This is an internal TLS Scan indicator, not a certification or an official standard.'));
+    root.append(el('p','muted','This is an internal Orion indicator, not a certification or an official standard.'));
   }
 
   const tlsCheckLabels = {
@@ -920,7 +940,7 @@
     const root = $('drawerContent');
     root.textContent = '';
     root.append(el('h2','',`${endpoint.hostname}:${endpoint.port}`));
-    root.append(table(['Field','Value'], [['Endpoint ID', endpoint.endpoint_id], ['IP address', endpoint.ip_address], ['Protocol', endpoint.protocol], ['TLS Grade', endpoint.overall_grade], ['Compliance Status', endpoint.compliance_status], ['Findings', endpoint.finding_count], ['Highest Severity', endpoint.highest_severity]]));
+    root.append(table(['Field','Value'], [['Endpoint ID', endpoint.endpoint_id], ['IP address', endpoint.ip_address], ['Protocol', endpoint.protocol], ['Display Grade', endpoint.overall_grade], ['Cryptographic Grade', endpoint.crypto_grade], ['PKI Status', endpoint.pki_status], ['Grade Version', endpoint.grade_version], ['Compliance Status', endpoint.compliance_status], ['Findings', endpoint.finding_count], ['Highest Severity', endpoint.highest_severity]]));
     root.append(el('h3','','Security Breakdown'), table(['Area','Result'], Object.entries(endpoint.security_breakdown)));
     root.append(el('h3','','Findings'), table(['Finding'], endpoint.finding_ids.map((finding) => [finding])));
     root.append(el('h3','','TLS Versions'), table(['Version','Status'], Object.entries(endpoint.tls_versions)));

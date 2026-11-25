@@ -7,11 +7,16 @@ def test_ipsec_profiles_policies_and_definitions_are_separate_from_tls(operator,
     policy_content = {"allowed_versions": ["IKEv1", "IKEv2"], "allowed_encryption": ["AES_GCM_16", "AES_CBC"],
                       "allowed_integrity": ["SHA256", "NONE"], "allowed_prf": ["PRF_HMAC_SHA2_256"], "allowed_dh_groups": ["14", "ECP_256"]}
     profile_content = {"ike": {"versions": ["IKEv1", "IKEv2"], "ports": [500, 4500], "timeout_ms": 300,
-                                "retries": 0, "nat_t": True, "aggressive_mode": False}}
+                                "retries": 0, "max_parallelism": 2, "nat_t": True, "aggressive_mode": False}}
     policy = operator.post("/api/policies", json={"name": f"ipsec-{uuid.uuid4().hex[:6]}", "technology": "ipsec", "content": policy_content})
     assert policy.status_code == 201, policy.text
     profile = operator.post("/api/profiles", json={"name": f"ipsec-{uuid.uuid4().hex[:6]}", "technology": "ipsec", "content": profile_content})
     assert profile.status_code == 201, profile.text
+    invalid_profile = operator.post("/api/profiles", json={
+        "name": f"invalid-ipsec-{uuid.uuid4().hex[:6]}", "technology": "ipsec",
+        "content": {"ike": {**profile_content["ike"], "max_parallelism": 17}},
+    })
+    assert invalid_profile.status_code == 422, invalid_profile.text
     assert operator.post(f"/api/policies/{policy.json()['id']}/publish").status_code == 200
     assert operator.post(f"/api/profiles/{profile.json()['id']}/publish").status_code == 200
     assert all(x["technology"] == "tls" for x in operator.get("/api/profiles").json())
