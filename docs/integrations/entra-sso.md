@@ -1,24 +1,26 @@
 # SSO with Microsoft Entra ID (and generic OIDC)
 
-TLS Scan implements OpenID Connect *Authorization Code + PKCE* with ID-token validation (issuer, audience,
+Orion implements OpenID Connect *Authorization Code + PKCE* with ID-token validation (issuer, audience,
 nonce, signature via JWKS). **Authentication and directory are separate**: SSO only identifies people; optional [directory
 connectors](directory.md) help an administrator pre-provision people with a role. Users are otherwise provisioned at first
 sign-in and managed in *Administration → Users*.
 
 ## Entra ID
 1. *App registrations → New registration*, single tenant, redirect URI (Web):
-   `https://<host>/api/auth/sso/callback` (must equal `TLS_SCAN_PUBLIC_BASE_URL` + that path).
+   `https://<host>/api/auth/sso/callback` (must equal `ORION_PUBLIC_BASE_URL` + that path).
 2. *Certificates & secrets*: create a client secret. *Token configuration*: add the optional claim `email`
    (otherwise the `preferred_username`/`upn` is used when it is an address).
 3. `.env`:
    ```
-   TLS_SCAN_OIDC_PROVIDER=entra
-   TLS_SCAN_OIDC_ISSUER=https://login.microsoftonline.com/<tenant-id>/v2.0
-   TLS_SCAN_OIDC_CLIENT_ID=<application (client) id>
-   TLS_SCAN_OIDC_CLIENT_SECRET=<secret>
-   TLS_SCAN_OIDC_DEFAULT_ROLE=USER
+   ORION_OIDC_PROVIDER=entra
+   ORION_OIDC_ISSUER=https://login.microsoftonline.com/<tenant-id>/v2.0
+   ORION_OIDC_CLIENT_ID=<application (client) id>
+   ORION_OIDC_CLIENT_SECRET=<secret>
+   ORION_OIDC_DEFAULT_ROLE=USER
    ```
-   then `docker compose up -d api`. A "Sign in with SSO" button appears; the local administrator keeps working.
+   then `docker compose up -d api`. "Sign in with SSO" appears under *Other sign-in methods*, and becomes the main *Sign in* button once an account is managed by Entra; the local administrator keeps working.
+   Alternatively, configure Entra in *Administration → Authentication* and enter the client secret there (stored encrypted;
+   see [authentication](../admin/authentication.md#entra-client-secret-entered-in-the-page)).
 4. Promote people in *Administration → Users*.
 
 ## Troubleshooting
