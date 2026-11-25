@@ -294,7 +294,7 @@ def persist_results(db: DbSession, run: ScanRun, outcome: dict[str, Any], status
 
 def _format_of(path: Path, run: ScanRun | None = None) -> str:
     controls = (run.config_snapshot or {}).get("enabled_controls", []) if run else []
-    if path.name.startswith("ipsec-results.") and "tls" in controls and "ipsec" in controls:
+    if path.name.startswith("ipsec-results.") and "ipsec" in controls and ("tls" in controls or (run and run.control_type == "multi")):
         return f"ipsec_{path.suffix.lstrip('.')}"
     if path.name.startswith("ssh-results."):
         return f"ssh_{path.suffix.lstrip('.')}"

@@ -55,4 +55,25 @@ describe("scan detail back button (LST-32)", () => {
     expect(screen.getByText(/No SSH handshake observation was recorded/i)).toBeInTheDocument();
     expect(screen.queryByText("192.0.2.10")).not.toBeInTheDocument();
   });
+
+  it("offers direct links to each enabled control and the DNS discovery page", async () => {
+    vi.mocked(api).mockResolvedValueOnce({
+      ...run,
+      control_type: "multi",
+      config_snapshot: { enabled_controls: ["tls", "ipsec", "ssh"], mail_security: { enabled: true } },
+      mail_security: { domains: ["example.test"], checks: [] },
+      mail_security_results: [],
+      ipsec_observations: [],
+      ssh_observations: [],
+    } as never);
+    openRun(["/scans/r1"]);
+
+    const tls = await screen.findByRole("link", { name: "TLS / PKI" });
+    expect(tls).toHaveAttribute("href", "#run-tls");
+    expect(screen.getByRole("link", { name: "SSH" })).toHaveAttribute("href", "#run-ssh");
+    expect(screen.getByRole("link", { name: "IPsec / IKE" })).toHaveAttribute("href", "#run-ipsec");
+    expect(screen.getByRole("link", { name: "Mail security" })).toHaveAttribute("href", "#run-mail");
+    expect(screen.getByRole("link", { name: "DNS discovery" })).toHaveAttribute("href", "/targets?tab=dns");
+    expect(screen.getByText("No mail security results were recorded for this scan.")).toBeInTheDocument();
+  });
 });
