@@ -122,6 +122,14 @@ export default function RunDetail() {
   const active = run.status === "queued" || run.status === "running";
   const s = run.summary;
   const tlsCheckRows = run.endpoints.flatMap((e) => (e.tls_checks ?? []).map((check) => ({ endpoint: endpointLabel(e), check })));
+  const snapshot = run.config_snapshot ?? {};
+  const snapshotControls = snapshot.enabled_controls;
+  const legacyControls = run.control_type === "multi"
+    ? ["ipsec", "ssh", ...(run.endpoints.length || run.reports.some((report) => report.format === "html") ? ["tls"] : [])]
+    : [run.control_type ?? "tls"];
+  const enabledControls = new Set(Array.isArray(snapshotControls) ? snapshotControls.filter((value): value is string => typeof value === "string") : legacyControls);
+  const mailConfig = snapshot.mail_security as { enabled?: boolean } | undefined;
+  const mailEnabled = Boolean(run.mail_security || mailConfig?.enabled);
   return (
     <>
       <PageHeader title={run.name} subtitle={`${formatDate(run.queued_at, locale)} · ${formatDuration(run.duration_seconds)}`} actions={
@@ -150,6 +158,15 @@ export default function RunDetail() {
           ))}
         </div>
       )}
+      <Card className="mb-6"><CardHeader><CardTitle>{t("run.controlNavigation" as never)}</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-2">
+        {enabledControls.has("tls") && <Button asChild variant="outline" size="sm"><a href="#run-tls">TLS / PKI</a></Button>}
+        {enabledControls.has("ssh") && <Button asChild variant="outline" size="sm"><a href="#run-ssh">SSH</a></Button>}
+        {enabledControls.has("ipsec") && <Button asChild variant="outline" size="sm"><a href="#run-ipsec">IPsec / IKE</a></Button>}
+        {mailEnabled && <Button asChild variant="outline" size="sm"><a href="#run-mail">{t("run.mailControl" as never)}</a></Button>}
+        {Boolean((snapshot.service_identification as { enabled?: boolean } | undefined)?.enabled) && <Button asChild variant="outline" size="sm"><a href="#run-services">{t("run.serviceControl" as never)}</a></Button>}
+        {Boolean(snapshot.quic) && <Button asChild variant="outline" size="sm"><a href="#run-quic">QUIC</a></Button>}
+        <Button asChild variant="outline" size="sm"><a href="/targets?tab=dns">{t("run.dnsControl" as never)}</a></Button>
+      </CardContent></Card>
       {cmp && run.control_type !== "ipsec" && <div className="mb-6"><ComparisonView runId={id} withRun={withRun} /></div>}
       {run.reports.length > 0 && (
         <Card className="mb-6"><CardHeader><CardTitle>{t("nav.reports")}</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-2">
@@ -157,7 +174,7 @@ export default function RunDetail() {
           {run.reports.filter((r) => ["html", "ipsec_html", "ssh_html"].includes(r.format)).map((r) => <Button key={`${r.format}-open`} asChild size="sm"><a href={downloadUrl(id, r.format, true)} target="_blank" rel="noreferrer">{t("run.openHtml")} · {r.format.replace("_html", "").toUpperCase()}</a></Button>)}
         </CardContent></Card>
       )}
-      {run.control_type !== "ipsec" && <Card className="mb-6">
+      {run.control_type !== "ipsec" && <Card id="run-tls" className="mb-6">
         <CardHeader><CardTitle>{t("run.endpointsTitle")}</CardTitle>
           <div className="segmented" role="group" aria-label={t("run.endpointsTitle")}>
             <button type="button" aria-pressed={byHost} className={byHost ? "active" : ""} onClick={() => setByHost(true)}>{t("run.byHost")}</button>
@@ -173,10 +190,10 @@ export default function RunDetail() {
           <DataTable rows={tlsCheckRows} rowKey={(r) => `${r.endpoint}/${r.check.check_id}`} columns={tlsCheckColumns(t as never)} />
         </Card>
       )}
-      {!!run.mail_security_results?.length && <Card className="mb-6">
+      {mailEnabled && <Card id="run-mail" className="mb-6">
         <CardHeader><CardTitle>{t("mail.results" as never)}</CardTitle></CardHeader>
         <CardContent><p className="mb-3 text-xs text-muted">{t("mail.limits" as never)}</p>
-          {run.mail_security_results.map((domain) => <section key={domain.domain} className="mb-5 last:mb-0">
+          {run.mail_security_results?.length ? run.mail_security_results.map((domain) => <section key={domain.domain} className="mb-5 last:mb-0">
             <h3 className="mb-2 text-sm font-semibold">{domain.domain}</h3>
             {!!domain.smtp_starttls?.length && <p className="mb-2 text-xs text-muted">{t("mail.smtpStarttls" as never)}: {domain.smtp_starttls.map((item) => `${item.host}${item.port ? `:${item.port}` : ""} — ${t(`mail.smtpStatus.${item.status}` as never)}${item.tls_versions.length ? ` (${item.tls_versions.join(", ")})` : ""}`).join(" · ")}</p>}
             <DataTable rows={domain.checks} rowKey={(row) => `${row.check}-${row.details.selector ?? ""}`} columns={[
@@ -185,11 +202,11 @@ export default function RunDetail() {
               { key: "message", header: t("mail.observation" as never), values: (row) => [row.message], render: (row) => <span className="text-xs">{row.message}</span> },
               { key: "evidence", header: t("mail.evidence" as never), values: (row) => row.records, render: (row) => <code className="break-all text-xs">{row.records.join("; ") || "—"}</code> },
             ]} />
-          </section>)}
+          </section>) : <p role="status" className="rounded-lg border border-dashed p-4 text-sm">{t("run.mailNoResults" as never)}</p>}
         </CardContent>
       </Card>}
-      {(run.control_type === "ipsec" || run.control_type === "multi") && <IpsecObservations observations={run.ipsec_observations ?? []} />}
-      {(run.control_type === "ssh" || run.control_type === "multi") && <Card className="mb-6"><CardHeader><CardTitle>SSH audit</CardTitle></CardHeader>
+      {enabledControls.has("ipsec") && <IpsecObservations id="run-ipsec" observations={run.ipsec_observations ?? []} />}
+      {enabledControls.has("ssh") && <Card id="run-ssh" className="mb-6"><CardHeader><CardTitle>SSH audit</CardTitle></CardHeader>
         <p className="px-5 pb-3 text-xs text-muted">{t("ssh.gradeHint" as never)} {t("ssh.auditLimits" as never)}</p>
         {run.ssh_observations?.length ? <DataTable rows={run.ssh_observations} rowKey={(r) => `${r.target}:${r.port}`} columns={[
           { key: "target", header: "Target", values: (r) => [r.target], render: (r) => r.target },
@@ -201,19 +218,19 @@ export default function RunDetail() {
           { key: "algorithms", header: "Observed algorithms", values: (r) => Object.values(r.algorithms).flat(), render: (r) => <span className="text-xs">{Object.entries(r.algorithms).flatMap(([k, v]) => v.map((x) => `${k}: ${x}`)).join(" · ") || "Indeterminate"}</span> },
         ]} /> : <p role="status" className="mx-5 mb-5 rounded-lg border border-dashed p-4 text-sm">{t("ssh.noObservation" as never)}</p>}
       </Card>}
-      {!!run.service_observations?.length && <Card className="mb-6"><CardHeader><CardTitle>{t("service.results" as never)}</CardTitle></CardHeader>
+      {(Boolean((snapshot.service_identification as { enabled?: boolean } | undefined)?.enabled) || !!run.service_observations?.length) && <Card id="run-services" className="mb-6"><CardHeader><CardTitle>{t("service.results" as never)}</CardTitle></CardHeader>
         <p className="px-5 pb-3 text-xs text-muted">{t("service.resultsHint" as never)}</p>
-        <DataTable rows={run.service_observations} rowKey={(r: ServiceObservation) => `${r.target}:${r.port ?? "none"}`} columns={[
+        {run.service_observations?.length ? <DataTable rows={run.service_observations} rowKey={(r: ServiceObservation) => `${r.target}:${r.port ?? "none"}`} columns={[
           { key: "target", header: "Target", values: (r) => [r.target, ...(r.scope_targets ?? [])], render: (r) => <span>{r.target || "—"}{!!r.scope_targets?.length && r.scope_targets.some((name) => name !== r.target) && <small className="ml-1 block text-muted">{r.scope_targets.filter((name) => name !== r.target).join(", ")}</small>}</span> },
           { key: "port", header: "TCP", values: (r) => [String(r.port ?? "")], render: (r) => r.port ?? "—" },
           { key: "service", header: t("service.name" as never), values: (r) => [r.service, r.product, r.version], render: (r) => <span>{r.service || "—"}{r.product && ` · ${r.product}`}{r.version && ` ${r.version}`}</span> },
           { key: "confidence", header: t("service.confidence" as never), values: (r) => [String(r.confidence)], render: (r) => `${Math.round(r.confidence * 100)}%` },
           { key: "status", header: t("col.status"), values: (r) => [r.status], render: (r) => <Badge tone={r.status === "observed" ? "success" : r.status === "probable" ? "warning" : "neutral"}>{r.status}</Badge> },
-        ]} />
+        ]} /> : <p role="status" className="mx-5 mb-5 rounded-lg border border-dashed p-4 text-sm">{t("run.serviceNoResults" as never)}</p>}
       </Card>}
-      {!!run.quic_observations?.length && <Card className="mb-6"><CardHeader><CardTitle>{t("quic.title" as never)}</CardTitle></CardHeader>
+      {(Boolean(snapshot.quic) || !!run.quic_observations?.length) && <Card id="run-quic" className="mb-6"><CardHeader><CardTitle>{t("quic.title" as never)}</CardTitle></CardHeader>
         <p className="px-5 pb-3 text-xs text-muted">{t("quic.resultsHint" as never)}</p>
-        <DataTable rows={run.quic_observations} rowKey={(r: QuicObservation) => `${r.target}:${r.port ?? "none"}`} columns={[
+        {run.quic_observations?.length ? <DataTable rows={run.quic_observations} rowKey={(r: QuicObservation) => `${r.target}:${r.port ?? "none"}`} columns={[
           { key: "target", header: "Target", values: (r) => [r.target], render: (r) => r.target || "—" },
           { key: "port", header: "UDP", values: (r) => [String(r.port ?? "")], render: (r) => r.port ?? "—" },
           { key: "status", header: t("col.status"), values: (r) => [r.status], render: (r) => <Badge tone={r.status === "observed" ? "success" : "warning"}>{r.status}</Badge> },
@@ -222,7 +239,7 @@ export default function RunDetail() {
           { key: "cipher", header: t("quic.cipher" as never), values: (r) => [r.cipher_suite ?? ""], render: (r) => <code className="text-xs">{r.cipher_suite ?? "—"}</code> },
           { key: "policy", header: t("quic.policy" as never), values: (r) => (r.policy_evaluations ?? []).map((p) => p.policy), render: (r) => <span className="text-xs">{(r.policy_evaluations ?? []).map((p) => `${p.policy}: ${p.checks.map((c) => `${c.control}=${c.status}`).join(", ")}`).join(" · ") || "—"}</span> },
           { key: "observation", header: t("run.tlsCheck"), values: (r) => [r.reason ?? "", r.certificate?.sha256_fingerprint ?? ""], render: (r) => <span className="break-all text-xs">{r.reason ?? r.certificate?.sha256_fingerprint ?? "—"}</span> },
-        ]} />
+        ]} /> : <p role="status" className="mx-5 mb-5 rounded-lg border border-dashed p-4 text-sm">{t("run.quicNoResults" as never)}</p>}
       </Card>}
       {run.control_type !== "ipsec" && <Card><CardHeader><CardTitle>{t("run.findings")}</CardTitle></CardHeader>
         {run.findings.length ? <DataTable rows={run.findings} rowKey={(f) => f.finding_id} columns={findingColumns(t as never, run.endpoints)} /> : <Empty>—</Empty>}

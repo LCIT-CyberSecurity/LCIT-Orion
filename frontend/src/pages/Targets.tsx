@@ -203,11 +203,12 @@ export default function Targets() {
   const { user, atLeast } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedDiscovery = searchParams.get("discovery");
+  const requestedTab = searchParams.get("tab");
   // `?target=<id>` / `?group=<id>` (links from Schedules...) open that record's existing dialog, or show it read-only
   const requestedTarget = searchParams.get("target");
   const requestedGroup = searchParams.get("group");
   const [linkNote, setLinkNote] = useState<"notFound" | "readOnly" | null>(null);
-  const [selectedTab, setSelectedTab] = useState(requestedDiscovery ? "dns" : requestedGroup ? "groups" : "targets");
+  const [selectedTab, setSelectedTab] = useState(requestedTab === "dns" || requestedDiscovery ? "dns" : requestedGroup ? "groups" : "targets");
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
   const [si, setSi] = useState("");
