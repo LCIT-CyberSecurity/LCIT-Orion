@@ -329,6 +329,10 @@
   .card--flush .simple-table tbody tr:last-child td, .table-wrap .simple-table tbody tr:last-child td { border-bottom: 0; }
   .row-link { color: var(--text-primary); font-weight: 620; text-decoration: none; }
   .row-link:hover { color: var(--primary); }
+  /* A business reference (definition, target, group) that opens its existing record: looks like a link, keyboard-visible. */
+  .ref-link { color: var(--primary); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--primary) 40%, transparent); text-underline-offset: 2px; }
+  .ref-link:hover { text-decoration-color: currentColor; }
+  .ref-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
   :root[data-theme="studio"] .simple-table th { padding: 9px 14px; background: var(--surface); letter-spacing: 0.02em; text-transform: none; }
   :root[data-theme="studio"] .simple-table td { padding: 10px 14px; font-size: 15.5px; line-height: 21px; }
   :root[data-appearance="dark"][data-theme="studio"] .simple-table th { background: var(--surface); }
@@ -360,7 +364,18 @@
   .badge--danger { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-line); }
   .badge--warning { background: var(--warning-soft); color: var(--warning); border-color: var(--warning-line); }
   .badge--primary { background: var(--primary-soft); color: var(--primary); border-color: var(--primary-line); }
+  .security-grade { justify-content: center; width: 2.15rem; height: 2.15rem; padding: 0; border-width: 1px; border-radius: 50%; font-size: 13px; letter-spacing: 0; }
+  .security-grade.grade-a-plus { background: #dcfce7; color: #14532d; border-color: #86efac; }
+  .security-grade.grade-a { background: #ecfccb; color: #365314; border-color: #bef264; }
+  .security-grade.grade-b { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+  .security-grade.grade-c { background: #fef9c3; color: #854d0e; border-color: #fde047; }
+  .security-grade.grade-d { background: #ffedd5; color: #9a3412; border-color: #fdba74; }
+  .security-grade.grade-e { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
+  .security-grade.grade-f, .security-grade.grade-m { background: #b91c1c; color: #fff; border-color: #7f1d1d; }
+  .security-grade.grade-t { background: #fef3c7; color: #92400e; border-color: #fbbf24; }
+  .security-grade.grade-unknown { background: var(--neutral-soft); color: var(--text-secondary); border-color: var(--hairline); }
   :root[data-theme="studio"] .badge { border-radius: var(--radius-xs); }
+  .badge.security-grade { border-radius: 50%; }
   .tag-list { display: flex; flex-wrap: wrap; gap: 4px; }
 
   /* ===== Notes, empty and loading states ===== */

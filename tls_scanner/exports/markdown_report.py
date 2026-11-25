@@ -51,7 +51,7 @@ def count_values(values):
     return counts
 
 
-GRADE_ORDER = {"A+": 0, "A": 1, "B": 2, "C": 3, "D": 4, "F": 5, "Not Tested": 6}
+GRADE_ORDER = {"A+": 0, "A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "T": 7, "M": 8, "Not Tested": 9, "NOT_EVALUATED": 10}
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "informational": 4, "none": 5}
 
 
@@ -89,7 +89,9 @@ def model_endpoint_summary_row(host, endpoints):
     protocols = joined_unique(version for endpoint in endpoints for version in endpoint.supported_tls_versions)
     certificates = joined_unique(endpoint.certificate.valid_until or endpoint.certificate.status for endpoint in endpoints)
     pqc = joined_unique(endpoint.pqc.get("readiness") for endpoint in endpoints)
-    return [host, len(endpoints), ports, worst_model_grade(endpoints), f"{failed}/{len(endpoints)}", findings, highest_model_severity(endpoints), certificates, protocols, pqc]
+    crypto_grade = max((endpoint.crypto_grade for endpoint in endpoints), key=lambda grade: GRADE_ORDER.get(grade, 99), default="NOT_EVALUATED")
+    pki_status = joined_unique(endpoint.pki_status for endpoint in endpoints)
+    return [host, len(endpoints), ports, worst_model_grade(endpoints), crypto_grade, pki_status, f"{failed}/{len(endpoints)}", findings, highest_model_severity(endpoints), certificates, protocols, pqc]
 
 
 def worst_grade(grades):
@@ -439,7 +441,7 @@ def build_markdown_report(results, job, scan_timestamp):
     policies = job.policies or ()
     target_groups = job.target_groups or ()
     lines = [
-        f"# TLS Scan Dashboard - {job.report_name}",
+        f"# Orion TLS Dashboard - {job.report_name}",
         "",
         "**Vue exécutive de la posture TLS, des écarts de conformité et des actions prioritaires.**",
         "",
@@ -696,8 +698,8 @@ def build_markdown_report_from_model(model):
         "",
         "## Endpoint Summary",
         "",
-        "| Host | Endpoints | Ports | Worst Grade | Failed Endpoints | Findings | Highest Severity | Certificate Expiration | TLS Versions | PQC Readiness |",
-        "| --- | ---: | --- | --- | --- | ---: | --- | --- | --- | --- |",
+        "| Host | Endpoints | Ports | Display Grade | Crypto Grade | PKI Status | Failed Endpoints | Findings | Highest Severity | Certificate Expiration | TLS Versions | PQC Readiness |",
+        "| --- | ---: | --- | --- | --- | --- | --- | ---: | --- | --- | --- | --- |",
     ])
     for host, endpoints in group_model_endpoints(model.endpoints):
         lines.append("| " + " | ".join(markdown_escape(value) for value in model_endpoint_summary_row(host, endpoints)) + " |")
@@ -727,7 +729,7 @@ def build_markdown_report_from_model(model):
         "",
         "## Certificate Trust",
         "",
-        "TLS Scan Public Web PKI uses a Mozilla-derived public trust store snapshot bundled with TLS Scan.",
+        "Orion Public Web PKI uses a Mozilla-derived public trust store snapshot bundled with Orion.",
         "",
         "| Endpoint | Trust Classification | Chain Validation | Trusted By | Trust Anchor |",
         "| --- | --- | --- | --- | --- |",

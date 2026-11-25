@@ -20,11 +20,11 @@ from tls_scanner import pki
 # Input normalization and command-line port validation.
 class NormalizeTargetsTests(unittest.TestCase):
     def test_normalizes_comma_separated_targets_for_nmap(self):
-        targets = "192.168.1.0/24, 10.0.0.5,web.example.com"
+        targets = "192.0.2.0/24, 10.0.0.5,web.example.com"
 
         self.assertEqual(
             scanner.normalize_targets(targets),
-            "192.168.1.0/24 10.0.0.5 web.example.com",
+            "192.0.2.0/24 10.0.0.5 web.example.com",
         )
 
 
@@ -814,7 +814,7 @@ reports:
         self.assertIn("Print / Save as PDF", html_report)
         self.assertIn("Communication Security", html_report)
         self.assertIn("communicationTable", html_report)
-        self.assertNotIn("# TLS Scan Dashboard", html_report)
+        self.assertNotIn("# Orion TLS Dashboard", html_report)
 
 
 
@@ -970,7 +970,7 @@ class ProfessionalReportTests(unittest.TestCase):
         self.assertIn("PRIVATE_TRUSTED", script)
         self.assertIn("UNTRUSTED", script)
         self.assertIn("NOT_TESTED", script)
-        self.assertIn("A technical error prevented TLS Scan", script)
+        self.assertIn("A technical error prevented Orion", script)
 
     def test_multi_format_exports_create_scan_folder_resources_and_metadata(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1039,7 +1039,7 @@ class TerminalOutputTests(unittest.TestCase):
             3072,
             "sha256WithRSAEncryption",
             "PUBLIC_TRUSTED",
-            "TLS Scan Public Web PKI",
+            "Orion Public Web PKI",
             "Demo Public Root CA",
             "Passed",
             "Not Tested",

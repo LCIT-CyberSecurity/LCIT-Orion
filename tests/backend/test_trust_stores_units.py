@@ -13,11 +13,12 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from tls_scan_app.services import trust_stores as svc
+from orion_app.services import trust_stores as svc
 from tls_scanner.config import parse_inline_stores
 from tls_scanner.models import ConfigError
 from tls_scanner.pki import (
-    TRUST_PRIVATE, TRUST_UNTRUSTED, PeerCertificateChain, load_inline_store, load_trust_stores, validate_peer_chain,
+    TRUST_PRIVATE, TRUST_UNTRUSTED, PeerCertificateChain, load_inline_store, load_trust_stores,
+    openssl_failure_reason, validate_peer_chain,
 )
 
 NOW = dt.datetime.now(dt.UTC)
@@ -176,7 +177,7 @@ def test_file_name_never_reaches_a_path_or_a_message_unsanitised(pki):
     assert "/" not in str(error.value) and ";" not in str(error.value)
 
 
-@pytest.mark.parametrize("value", ["", "  ", "a,b", "x" * 121, "TLS Scan Public Web PKI", "bad\nname"])
+@pytest.mark.parametrize("value", ["", "  ", "a,b", "x" * 121, "Orion Public Web PKI", "TLS Scan Public Web PKI", "bad\nname"])
 def test_store_names(value):
     with pytest.raises(svc.TrustStoreError):
         svc.validate_name(value)
@@ -197,6 +198,16 @@ def store(label, anchors, intermediates=()):
 
 def verdict(chain, *stores):
     return validate_peer_chain(PeerCertificateChain(tuple(chain)), tuple(stores))
+
+
+def test_openssl_failure_reason_uses_cause_without_temporary_path():
+    output = (
+        "CN = deco-p92.home\n"
+        "error 20 at 0 depth lookup: unable to get local issuer certificate\n"
+        "error /tmp/orion-pki-abc123/leaf.pem: verification failed\n"
+    )
+    assert openssl_failure_reason(output) == "unable to get local issuer certificate"
+    assert openssl_failure_reason("error /tmp/orion-pki-abc123/leaf.pem: verification failed") == "certificate chain validation failed"
 
 
 def test_A_root_absent_is_untrusted(pki):

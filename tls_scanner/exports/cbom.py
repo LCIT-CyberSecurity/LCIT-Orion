@@ -17,7 +17,8 @@ from ..constants import PQC_TLS_GROUPS
 
 
 # Build stable refs from asset values so repeated algorithms/keys are de-duplicated in the CBOM.
-def build_cbom(results, pqc=False):
+def build_cbom(results, pqc=False, grade_assessments=None):
+    grade_assessments = grade_assessments or {}
     components = []
     algorithm_refs = {}
     public_key_refs = {}
@@ -57,6 +58,7 @@ def build_cbom(results, pqc=False):
         key_exchange = row[8] if pqc else None
         compliance = row[-2]
         reason = row[-1]
+        assessment = grade_assessments.get(f"{host}:{port}/tcp", {})
 
         crypto_refs = []
         key_match = re.fullmatch(r"(.+?)(?: (\d+) bits)?", public_key)
@@ -109,6 +111,9 @@ def build_cbom(results, pqc=False):
             {"name": "scan-tls:ip", "value": str(host)},
             {"name": "scan-tls:port", "value": str(port)},
             {"name": "scan-tls:grade", "value": str(grade)},
+            {"name": "scan-tls:crypto-grade", "value": str(assessment.get("crypto_grade", grade))},
+            {"name": "scan-tls:pki-status", "value": str(assessment.get("pki_status", "NOT_TESTED"))},
+            {"name": "scan-tls:grade-version", "value": str(assessment.get("grade_version", "legacy"))},
             {"name": "scan-tls:compliance", "value": str(compliance)},
             {
                 "name": "scan-tls:certificate-valid-until",
