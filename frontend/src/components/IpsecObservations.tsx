@@ -5,13 +5,13 @@ import { Card, CardHeader, CardTitle } from "./ui/card";
 import { DataTable } from "./DataTable";
 
 /** Show only IKE probes that received a protocol response; silence remains in the stored run data. */
-export function IpsecObservations({ observations }: { observations: IpsecObservation[] }) {
+export function IpsecObservations({ observations, id }: { observations: IpsecObservation[]; id?: string }) {
   const observed = observations.filter((observation) => observation.status === "observed");
   const errors = observations.filter((observation) => observation.status === "error");
   const { t } = useI18n();
 
   return (
-    <Card className="mb-6">
+    <Card id={id} className="mb-6">
       <CardHeader><CardTitle>{t("ipsec.results" as never)}</CardTitle></CardHeader>
       <p className="px-5 pb-3 text-xs text-muted">{t("ipsec.notice" as never)}</p>
       {errors.length > 0 && <p role="alert" className="px-5 pb-3 text-xs text-danger">{t("ipsec.probeErrors" as never)} ({errors.length})</p>}
