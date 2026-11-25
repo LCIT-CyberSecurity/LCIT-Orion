@@ -18,6 +18,7 @@ from pathlib import Path
 from orion_app.services.ipsec import evaluate_policy, probe_targets
 from orion_app.services.planner import job_from_snapshot
 from orion_app.services.quic_scan import scan as scan_quic, write_csv as write_quic_report
+from orion_app.services.multiprotocol_report import finalize_multiprotocol_reports
 from orion_app.services.service_identification import identify_services
 from orion_app.services.service_identification import write_report as write_service_report
 from orion_app.services.ssh_audit import audit_target, evaluate_ssh_policy, ssh_security_grade
@@ -265,15 +266,32 @@ def main(argv: list[str]) -> int:
         observations = scan_quic(config, snapshot["passes"], snapshot.get("tls_policies") or snapshot.get("policies") or [], cancel)
         files = write_quic_report(observations, Path(payload["export_dir"]), payload["run_id"], snapshot["export_formats"])
         return observations, files
+    def scan_mail_for_snapshot(snapshot: dict):
+        config = snapshot.get("mail_security") or {}
+        if not config.get("enabled") or cancel.is_set():
+            return []
+        emit("phase", {"phase": "mail_security", "hosts": config.get("domains", [])})
+        from orion_app.services.mail_security import inspect_domains
+        return inspect_domains(config.get("domains", []), config, cancel)
+    def finalize_reports(snapshot: dict, result: dict):
+        result["written_files"].extend(finalize_multiprotocol_reports(
+            snapshot, result, Path(payload["export_dir"]), payload["run_id"]
+        ))
+    def protocol_report_formats(snapshot: dict) -> list[str]:
+        formats = snapshot["export_formats"]
+        return [fmt for fmt in formats if fmt not in {"html", "md"}] if snapshot.get("control_type") == "multi" else formats
     if payload["snapshot"].get("control_type") == "ssh":
         snapshot = payload["snapshot"]
         observations, targets = scan_ssh(snapshot["ssh"], cancel, emit)
         written = write_ssh_reports(observations, Path(payload["export_dir"]), payload["run_id"], snapshot["export_formats"])
         service_observations, service_files = scan_services(snapshot, snapshot["passes"])
-        outcome_path.write_text(json.dumps({"status": "partial" if cancel.is_set() else "completed",
+        result = {"status": "partial" if cancel.is_set() else "completed",
             "report_model": {"statistics": {"ssh_observations": len(observations), "service_observations": len(service_observations)}}, "ssh_observations": observations,
             "service_observations": service_observations,
-            "written_files": [*written, *service_files], "scanned_hosts": targets, "skipped_hosts": [], "duration_seconds": 0}, default=str))
+            "mail_security_results": scan_mail_for_snapshot(snapshot),
+            "written_files": [*written, *service_files], "scanned_hosts": targets, "skipped_hosts": [], "duration_seconds": 0}
+        finalize_reports(snapshot, result)
+        outcome_path.write_text(json.dumps(result, default=str))
         return 0
     if payload["snapshot"].get("control_type") == "ipsec":
         snapshot = payload["snapshot"]
@@ -283,28 +301,34 @@ def main(argv: list[str]) -> int:
             Path(payload["export_dir"]), payload["run_id"], snapshot["export_formats"], cancel, emit,
         )
         service_observations, service_files = scan_services(snapshot, snapshot["passes"])
-        outcome_path.write_text(json.dumps({"status": "partial" if cancel.is_set() else "completed",
+        result = {"status": "partial" if cancel.is_set() else "completed",
             "report_model": {"statistics": {"ipsec_observations": len(observations), "service_observations": len(service_observations)}}, "ipsec_observations": observations,
             "service_observations": service_observations,
-            "written_files": [*written, *service_files], "scanned_hosts": targets, "skipped_hosts": [],
-            "duration_seconds": 0}, default=str))
+            "mail_security_results": scan_mail_for_snapshot(snapshot),
+            "written_files": [*written, *service_files], "scanned_hosts": targets, "skipped_hosts": [], "duration_seconds": 0}
+        finalize_reports(snapshot, result)
+        outcome_path.write_text(json.dumps(result, default=str))
         return 0
     if "tls" not in payload["snapshot"].get("enabled_controls", []) and "ipsec" in payload["snapshot"].get("enabled_controls", []):
         snapshot = payload["snapshot"]
         ike_config = snapshot["ipsec"]
         ike_targets = ike_config.get("targets") or sorted({t for p in snapshot["passes"] for t in p["targets"]})
-        ike_observations, ike_files = scan_ipsec(ike_config, ike_targets, Path(payload["export_dir"]), payload["run_id"], snapshot["export_formats"], cancel, emit)
+        protocol_formats = protocol_report_formats(snapshot)
+        ike_observations, ike_files = scan_ipsec(ike_config, ike_targets, Path(payload["export_dir"]), payload["run_id"], protocol_formats, cancel, emit)
         ssh_observations, ssh_files, ssh_targets = [], [], []
         if snapshot.get("ssh") and "ssh" in snapshot["enabled_controls"] and not cancel.is_set():
             ssh_observations, ssh_targets = scan_ssh(snapshot["ssh"], cancel, emit)
-            ssh_files = write_ssh_reports(ssh_observations, Path(payload["export_dir"]), payload["run_id"], snapshot["export_formats"])
+            ssh_files = write_ssh_reports(ssh_observations, Path(payload["export_dir"]), payload["run_id"], protocol_formats)
         service_observations, service_files = scan_services(snapshot, snapshot["passes"])
-        outcome_path.write_text(json.dumps({"status": "partial" if cancel.is_set() else "completed",
+        result = {"status": "partial" if cancel.is_set() else "completed",
             "report_model": {"statistics": {"ipsec_observations": len(ike_observations), "ssh_observations": len(ssh_observations), "service_observations": len(service_observations)}},
             "ipsec_observations": ike_observations, "ssh_observations": ssh_observations,
             "service_observations": service_observations,
+            "mail_security_results": scan_mail_for_snapshot(snapshot),
             "written_files": [*ike_files, *ssh_files, *service_files], "scanned_hosts": sorted(set(ike_targets + ssh_targets)),
-            "skipped_hosts": [], "duration_seconds": 0}, default=str))
+            "skipped_hosts": [], "duration_seconds": 0}
+        finalize_reports(snapshot, result)
+        outcome_path.write_text(json.dumps(result, default=str))
         return 0
     job, passes = job_from_snapshot(
         payload["snapshot"], payload["run_id"], payload["export_dir"], payload.get("log_file"), payload["max_workers"]
@@ -326,8 +350,9 @@ def main(argv: list[str]) -> int:
     ipsec_config = payload["snapshot"].get("ipsec")
     if ipsec_config and "ipsec" in payload["snapshot"].get("enabled_controls", []):
         targets = ipsec_config.get("targets") or sorted({target for item in payload["snapshot"]["passes"] for target in item["targets"]})
+        protocol_formats = protocol_report_formats(payload["snapshot"])
         observations, ipsec_files = scan_ipsec(ipsec_config, targets, Path(payload["export_dir"]), payload["run_id"],
-                                               payload["snapshot"]["export_formats"], cancel, emit)
+                                               protocol_formats, cancel, emit)
         outcome.report_model["statistics"]["ipsec_observations"] = len(observations)
         outcome.written_files.extend(ipsec_files)
         outcome.ipsec_observations = observations
@@ -336,15 +361,10 @@ def main(argv: list[str]) -> int:
         observations, _ = scan_ssh(ssh_config, cancel, emit)
         outcome.report_model["statistics"]["ssh_observations"] = len(observations)
         outcome.written_files.extend(write_ssh_reports(observations, Path(payload["export_dir"]), payload["run_id"],
-                                                       payload["snapshot"]["export_formats"]))
+                                                       protocol_report_formats(payload["snapshot"])))
         outcome.ssh_observations = observations
-    mail_security_results = []
-    mail_cfg = payload["snapshot"].get("mail_security") or {}
-    if mail_cfg.get("enabled") and not cancel.is_set():
-        emit("phase", {"phase": "mail_security", "hosts": mail_cfg.get("domains", [])})
-        from orion_app.services.mail_security import inspect_domains
-        mail_security_results = inspect_domains(mail_cfg.get("domains", []), mail_cfg, cancel)
-    outcome_path.write_text(json.dumps({
+    mail_security_results = scan_mail_for_snapshot(payload["snapshot"])
+    result = {
         "status": outcome.status,
         "report_model": outcome.report_model,
         "written_files": outcome.written_files,
@@ -356,7 +376,9 @@ def main(argv: list[str]) -> int:
         "ssh_observations": getattr(outcome, "ssh_observations", []),
         "service_observations": getattr(outcome, "service_observations", service_observations),
         "quic_observations": getattr(outcome, "quic_observations", quic_observations),
-    }, default=str))
+    }
+    finalize_reports(payload["snapshot"], result)
+    outcome_path.write_text(json.dumps(result, default=str))
     return 0
 
 
