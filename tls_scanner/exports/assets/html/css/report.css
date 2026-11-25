@@ -1,5 +1,5 @@
 /* ==========================================================================
-   TLS Scan — premium report stylesheet (screen)
+   Orion — premium report stylesheet (screen)
 
    Hand-written, dependency-free CSS. No framework, no preprocessor, no CDN:
    this file is copied verbatim into scan_reports/<run>/html/assets/css/ and
@@ -1968,6 +1968,46 @@ summary.top-finding-row::-webkit-details-marker { display: none; }
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+}
+
+.endpoint-grade {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+}
+
+.endpoint-certificate-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.endpoint-certificate-cell {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+}
+
+.endpoint-certificate-label {
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+}
+
+.endpoint-certificate-value {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 720px) {
+  .endpoint-certificate-columns { grid-template-columns: 1fr; }
 }
 
 .host-port-list {

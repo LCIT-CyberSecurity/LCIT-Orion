@@ -46,7 +46,7 @@ async function chooseDetails(label = "Other sign-in methods") {
 
 describe("login page", () => {
   it("uses one provider-agnostic SSO action and keeps local access collapsed", async () => {
-    providers = { ...localOnly, sso: { enabled: true, provider: "entra" } };
+    providers = { ...localOnly, sso: { enabled: true, provider: "entra", primary: true } };
     await open();
     expect(await screen.findByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/api/auth/sso/login");
     expect(screen.queryByRole("button", { name: /Microsoft|Google|SSO/i })).toBeNull();
@@ -58,7 +58,7 @@ describe("login page", () => {
   });
 
   it("shows LDAP and local choices with only one form when both alternatives are enabled", async () => {
-    providers = { local: true, sso: { enabled: true, provider: "google" }, ldap: { enabled: true, name: "corp" } };
+    providers = { local: true, sso: { enabled: true, provider: "google", primary: true }, ldap: { enabled: true, name: "corp" } };
     await open();
     await chooseDetails();
     expect(screen.getByRole("radio", { name: "Directory account" })).toBeChecked();
@@ -72,7 +72,7 @@ describe("login page", () => {
   });
 
   it("uses the LDAP endpoint when the directory alternative is selected", async () => {
-    providers = { local: true, sso: { enabled: true }, ldap: { enabled: true, name: "corp" } };
+    providers = { local: true, sso: { enabled: true, primary: true }, ldap: { enabled: true, name: "corp" } };
     await open();
     await chooseDetails();
     fireEvent.change(await screen.findByLabelText("Username or e-mail"), { target: { value: "alice" } });
@@ -89,6 +89,28 @@ describe("login page", () => {
     expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
     const details = screen.getByText("Local account").closest("details");
     expect(details).not.toHaveAttribute("open");
+  });
+
+  it("signs in locally first when no account is managed by the configured identity provider", async () => {
+    providers = { ...localOnly, sso: { enabled: true, provider: "entra", primary: false } };
+    await open();
+    fireEvent.change(await screen.findByLabelText("Username or e-mail"), { target: { value: "admin" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "Secret-Pass-1" } });
+    expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(login).toHaveBeenCalledWith("admin", "Secret-Pass-1"));
+    const details = await chooseDetails();
+    expect(details.querySelector("a")).toHaveAttribute("href", "/api/auth/sso/login");
+    expect(screen.getByRole("link", { name: "Sign in with SSO" })).toBeVisible();
+  });
+
+  it("offers local recovery and SSO among the other methods when LDAP leads without IdP accounts", async () => {
+    providers = { local: true, sso: { enabled: true, primary: false }, ldap: { enabled: true, name: "corp" } };
+    await open();
+    expect(await screen.findByText("Sign in with your directory account")).toBeInTheDocument();
+    await chooseDetails();
+    expect(screen.getByRole("link", { name: "Sign in with SSO" })).toHaveAttribute("href", "/api/auth/sso/login");
+    expect(screen.getAllByLabelText("Username or e-mail")).toHaveLength(2);
   });
 
   it("shows local credentials immediately when SSO and LDAP are unavailable", async () => {
@@ -108,7 +130,7 @@ describe("login page", () => {
 
   it("shows a safe SSO callback error and keeps the alternate login available", async () => {
     window.history.replaceState({}, "", "/login?auth_error=sso_unavailable&secret=hidden");
-    providers = { ...localOnly, sso: { enabled: true, provider: "generic" } };
+    providers = { ...localOnly, sso: { enabled: true, provider: "generic", primary: true } };
     await open();
     expect(await screen.findByText("Single sign-on failed. Try again or use another sign-in method.")).toBeInTheDocument();
     expect(window.location.search).toBe("");
@@ -126,7 +148,7 @@ describe("login page", () => {
   });
 
   it("translates the primary and alternatives into French", async () => {
-    providers = { ...localOnly, sso: { enabled: true } };
+    providers = { ...localOnly, sso: { enabled: true, primary: true } };
     render(<I18nProvider initial="fr"><Login /></I18nProvider>);
     await waitFor(() => expect(calls.some((c) => c.path === "/auth/providers")).toBe(true));
     expect(await screen.findByRole("link", { name: "Se connecter" })).toHaveAttribute("href", "/api/auth/sso/login");

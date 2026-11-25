@@ -17,11 +17,11 @@ MOCK = "http://mock-oidc:8080"
 
 
 def entra(**over):
-    return {"provider": "entra", "entra": {"tenant_id": TENANT, "client_id": "tls-scan-test", "issuer": MOCK}, "auto_provision": True, **over}
+    return {"provider": "entra", "entra": {"tenant_id": TENANT, "client_id": "orion-test", "issuer": MOCK}, "auto_provision": True, **over}
 
 
 def google(domains=("corp.example",), **over):
-    return {"provider": "google", "google": {"client_id": "tls-scan-test", "allowed_domains": list(domains)}, "auto_provision": True, **over}
+    return {"provider": "google", "google": {"client_id": "orion-test", "allowed_domains": list(domains)}, "auto_provision": True, **over}
 
 
 @pytest.fixture(autouse=True)
@@ -48,6 +48,13 @@ def attempt(email: str, claims: dict | None = None, tamper_state: bool = False) 
     return client, client.get("/api/auth/sso/callback", params=params)
 
 
+def offer() -> dict:
+    """The public SSO offer without `primary`, which depends on the accounts other tests created."""
+    sso = httpx.get(f"{API}/api/auth/providers").json()["sso"]
+    assert isinstance(sso.pop("primary", False), bool)
+    return sso
+
+
 def me(client: httpx.Client) -> dict:
     return client.get("/api/auth/me").json()["user"]
 
@@ -64,10 +71,11 @@ def audit_codes(admin, action="auth.sso_login") -> list[str]:
 def test_the_environment_provider_keeps_working_and_no_secret_is_ever_returned(admin):
     data = admin.get("/api/admin/auth").json()
     assert data["effective"]["provider"] == "generic" and data["effective"]["source"] == "environment"
-    assert data["secrets"] == {"oidc_client_secret": True, "google_client_secret": True, "ldap_bind_password": True}
+    assert data["secrets"] == {"oidc_client_secret": True, "google_client_secret": True, "ldap_bind_password": True,
+                               "entra_client_secret": {"configured": True, "source": "server", "unreadable": False, "stored": False}}
     text = json.dumps(data)
     assert "crashtest-only" not in text and "ldap-test-admin-pw" not in text
-    assert httpx.get(f"{API}/api/auth/providers").json()["sso"] == {"enabled": True, "provider": "generic"}
+    assert offer() == {"enabled": True, "provider": "generic"}
 
 
 def test_only_an_administrator_reads_or_changes_the_authentication(operator, user):
@@ -85,7 +93,7 @@ def test_a_multi_tenant_endpoint_cannot_replace_the_tenant_restriction(admin):
     assert r.status_code == 422
     r = admin.put("/api/admin/auth", json={"value": entra(entra={"tenant_id": TENANT, "client_id": "x", "issuer": "https://login.microsoftonline.com/99999999-2222-3333-4444-555555555555/v2.0"})})
     assert r.status_code == 422  # the issuer authority cannot silently target another tenant
-    from tls_scan_app.services.auth_config import validate
+    from orion_app.services.auth_config import validate
     with pytest.raises(ValueError, match="issuer"):
         validate(entra(entra={"tenant_id": TENANT, "client_id": "x", "issuer": "http://localhost/tenant/v2.0"}), allow_http=False)
     assert admin.put("/api/admin/auth", json={"value": {"provider": "google", "google": {"client_id": "x", "allowed_domains": ["not a domain"]}}}).status_code == 422
@@ -98,7 +106,14 @@ def test_switching_the_provider_off_and_back(admin):
     assert httpx.get(f"{API}/api/auth/providers").json()["sso"] == {"enabled": False}
     assert httpx.Client(base_url=API).get("/api/auth/sso/login").status_code == 404
     configure(admin, entra())
-    assert httpx.get(f"{API}/api/auth/providers").json()["sso"] == {"enabled": True, "provider": "entra"}
+    assert offer() == {"enabled": True, "provider": "entra"}
+
+
+def test_sso_becomes_the_primary_sign_in_once_an_account_is_managed_by_the_idp(admin):
+    configure(admin, entra())
+    client, r = attempt(email_of("primary"), {"tid": TENANT})
+    assert r.status_code == 302, r.text
+    assert httpx.get(f"{API}/api/auth/providers").json()["sso"]["primary"] is True
 
 
 # ----------------------------------------------------------------------------------- Entra ID
@@ -152,14 +167,14 @@ def test_entra_configuration_test_steps_are_honest(admin):
     assert by["signing keys (JWKS)"]["status"] == "ok" and by["tenant restriction"]["status"] == "ok"
     assert steps[-1]["step"] == "interactive sign-in" and steps[-1]["status"] == "info"      # technical checks are not a real sign-in
     assert admin.post("/api/admin/auth/test/google", json={}).json()[0]["status"] == "fail"    # not the active provider
-    configure(admin, entra(entra={"tenant_id": TENANT, "client_id": "tls-scan-test", "issuer": "http://mock-oidc:9"}))
+    configure(admin, entra(entra={"tenant_id": TENANT, "client_id": "orion-test", "issuer": "http://mock-oidc:9"}))
     assert any(s["status"] == "fail" for s in admin.post("/api/admin/auth/test/entra", json={}).json())
 
 
 # ----------------------------------------------------------------------------------- Google Workspace
 def test_google_workspace_sign_in_needs_the_signed_domain_claim(admin):
     configure(admin, google())
-    assert httpx.get(f"{API}/api/auth/providers").json()["sso"] == {"enabled": True, "provider": "google"}
+    assert offer() == {"enabled": True, "provider": "google"}
     mail = email_of("g")
     client, r = attempt(mail, {"hd": "corp.example", "email_verified": True})
     assert r.status_code == 302 and me(client)["email"] == mail

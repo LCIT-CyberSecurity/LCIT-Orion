@@ -1,6 +1,6 @@
-import { Download, GitCompare, Trash2, XCircle } from "lucide-react";
+import { ArrowLeft, Download, GitCompare, Trash2, XCircle } from "lucide-react";
 import { useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, downloadUrl } from "../api/client";
 import type { Comparison, Endpoint, Finding, FindingBrief, RunDetail as Detail, ServiceObservation, QuicObservation } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -10,10 +10,13 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { DataTable, type Column } from "../components/DataTable";
 import { GroupedEndpoints } from "../components/GroupedEndpoints";
+import { GradeBadge } from "../components/GradeBadge";
+import { IpsecObservations } from "../components/IpsecObservations";
 import { PkiTrust } from "../components/PkiTrust";
 import { ScanProgress } from "../components/ScanProgress";
 import { useI18n } from "../i18n";
 import type { TlsCheckResult } from "../lib/tlsChecks";
+import { sshGrade } from "../lib/sshGrade";
 import { formatDate, formatDuration } from "../lib/utils";
 
 const SEVERITY_RANK: Record<string, number> = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
@@ -24,14 +27,18 @@ function endpointColumns(t: (key: never) => string): Column<Endpoint>[] {
   return [
     { key: "endpoint", header: "Endpoint", values: (e) => [e.hostname || e.ip_address], sort: endpointLabel, render: (e) => <span className="row-link">{endpointLabel(e)}</span> },
     { key: "tags", header: tr("col.tags"), values: (e) => e.tags ?? [], render: (e) => (e.tags?.length ? <TagList tags={e.tags} /> : "—") },
-    { key: "grade", header: tr("run.grade"), values: (e) => [e.grade], render: (e) => e.grade },
+    { key: "crypto", header: tr("run.cryptoGrade"), values: (e) => [e.crypto_grade ?? "NOT_EVALUATED"], sort: (e) => gradeRank(e.crypto_grade), render: (e) => <GradeBadge grade={e.crypto_grade} title={tr("run.cryptoGrade")} /> },
     { key: "exposure", header: tr("exposure.state"), values: (e) => [e.exposure?.state ?? "unknown"], render: (e) => <span className="text-xs" title={[e.exposure?.source, e.exposure?.evidence_method, e.exposure?.justification].filter(Boolean).join(" · ")}>{tr(`exposure.${e.exposure?.state ?? "unknown"}`)}{e.exposure?.validated ? ` · ${tr("exposure.validated")}` : ""}</span> },
     { key: "status", header: tr("col.status"), values: (e) => [e.compliance_status], render: (e) => e.compliance_status },
     { key: "tls", header: "TLS", values: (e) => e.tls_versions, sort: (e) => e.tls_versions.join(", "), render: (e) => e.tls_versions.join(", ") },
-    { key: "cert", header: tr("run.certificate"), values: (e) => [String(e.certificate.subject ?? "")], sort: (e) => String(e.certificate.valid_until ?? ""),
-      render: (e) => <span className="text-xs">{String(e.certificate.subject ?? "")}<br /><span className="text-muted">{String(e.certificate.valid_until ?? "")}</span></span> },
+    { key: "cert", header: tr("run.certificate"), values: (e) => [e.grade === "T" || e.grade === "M" ? e.grade : e.certificate.trust_classification ?? "NOT_TESTED", String(e.certificate.subject ?? "")], sort: (e) => String(e.certificate.valid_until ?? ""),
+      render: (e) => <div className="space-y-1"><div className="flex items-center gap-2">{(e.grade === "T" || e.grade === "M") && <GradeBadge grade={e.grade} title={`${tr("run.pkiStatus")}: ${tr(`pki.${e.pki_status ?? "NOT_TESTED"}` as never)}${e.pki_issues?.length ? ` · ${e.pki_issues.join(", ")}` : ""}`} />}<span className="text-xs">{tr(`pki.${e.pki_status ?? e.certificate.trust_classification ?? "NOT_TESTED"}` as never)}</span></div><span className="text-xs">{String(e.certificate.subject ?? "—")}<br /><span className="text-muted">{String(e.certificate.valid_until ?? "")}</span></span></div> },
   ];
 }
+
+const GRADE_ORDER = ["A+", "A", "B", "C", "D", "E", "F"];
+const gradeRank = (grade?: string) => { const index = GRADE_ORDER.indexOf(grade ?? ""); return index < 0 ? GRADE_ORDER.length : index; };
+const sshGradeRank = (grade: string | null) => { const index = ["A", "B", "C", "D", "F"].indexOf(grade ?? ""); return index < 0 ? 5 : index; };
 
 type TlsCheckRow = { endpoint: string; check: TlsCheckResult };
 const TLS_STATUS_TONE: Record<string, "success" | "danger" | "warning" | "neutral"> = { PASS: "success", FAIL: "danger", ERROR: "danger", INCONCLUSIVE: "warning", NOT_TESTED: "warning", NOT_APPLICABLE: "neutral" };
@@ -52,7 +59,9 @@ function findingColumns(t: (key: never) => string, endpoints: Endpoint[]): Colum
   return [
     { key: "severity", header: tr("run.severity"), values: (f) => [f.severity], sort: (f) => SEVERITY_RANK[f.severity.toLowerCase()] ?? 0, render: (f) => <SeverityBadge severity={f.severity} /> },
     { key: "finding", header: tr("run.finding"), sort: (f) => f.title, values: (f) => [f.title],
-      render: (f) => <><div className="font-medium">{f.title}</div><div className="text-xs text-muted">{f.evidence}</div><div className="mt-1 text-xs">{f.remediation}</div><ul className="mt-2 space-y-1 text-xs">{f.affected_endpoint_ids.map((id) => { const risk = f.contextual_risk_by_endpoint?.[id]; const endpoint = byId.get(id); return <li key={id} title={[risk?.reason, risk?.source, risk?.evidence_method, risk?.justification].filter(Boolean).join(" · ")}>{endpoint ? endpointLabel(endpoint) : id} · {tr("exposure.contextualRisk")}: {risk?.contextual_severity ?? tr("exposure.notEvaluated")}</li>; })}</ul></> },
+      render: (f) => <><div className="font-medium">{f.title}</div><div className="text-xs text-muted">{f.evidence}</div><ul className="mt-2 space-y-1 text-xs">{f.affected_endpoint_ids.map((id) => { const risk = f.contextual_risk_by_endpoint?.[id]; const endpoint = byId.get(id); return <li key={id} title={[risk?.reason, risk?.source, risk?.evidence_method, risk?.justification].filter(Boolean).join(" · ")}>{endpoint ? endpointLabel(endpoint) : id} · {tr("exposure.contextualRisk")}: {risk?.contextual_severity ?? tr("exposure.notEvaluated")}</li>; })}</ul></> },
+    { key: "recommendation", header: tr("run.recommendation"), values: (f) => [f.remediation?.trim() || tr("run.noRecommendation")], sort: (f) => f.remediation?.trim() || tr("run.noRecommendation"),
+      render: (f) => <span className="break-words text-sm">{f.remediation?.trim() || tr("run.noRecommendation")}</span> },
     { key: "category", header: "Category", values: (f) => [f.category], render: (f) => f.category || "—" },
     { key: "affected", header: tr("run.affected"), values: (f) => f.affected_endpoint_ids.map((id) => { const e = byId.get(id); return e ? endpointLabel(e) : id; }), sort: (f) => f.affected_endpoint_ids.map((id) => { const e = byId.get(id); return e ? endpointLabel(e) : id; }).join(", "), render: (f) => (
       <span className="text-xs">
@@ -98,7 +107,11 @@ export default function RunDetail() {
   const { t, locale } = useI18n();
   const { user, atLeast } = useAuth();
   const navigate = useNavigate();
-  const [byHost, setByHost] = useState(true);
+  const location = useLocation();
+  // Back to where the user came from (History, Reports with its filters, dashboard, map...); a page opened directly
+  // (link, new tab) has no previous entry in the application, so it goes to the scan history instead of leaving it.
+  const goBack = () => (location.key === "default" ? navigate("/scans?tab=history") : navigate(-1));
+  const [byHost, setByHost] = useState(false);
   const [params] = useSearchParams();
   const withRun = params.get("compare") ?? undefined;   // set by the dashboard evolution card: compare with that scan instead of the previous one
   const [cmp, setCmp] = useState(!!withRun);
@@ -113,6 +126,7 @@ export default function RunDetail() {
     <>
       <PageHeader title={run.name} subtitle={`${formatDate(run.queued_at, locale)} · ${formatDuration(run.duration_seconds)}`} actions={
         <>
+          <Button variant="outline" onClick={goBack}><ArrowLeft />{t("action.back")}</Button>
           <StatusBadge status={run.status} />
           {active && (run.initiated_by === user?.id || atLeast("OPERATOR")) && <ConfirmButton label={<><XCircle className="size-4" />{t("action.cancelScan")}</>} confirm={t("confirm.cancelScan")} onConfirm={async () => { try { await api(`/scan-runs/${id}/cancel`, { method: "POST" }); void reload(); } catch (e) { setError(e); } }} />}
           {atLeast("USER") && !active && run.control_type !== "ipsec" && <Button variant="outline" onClick={() => setCmp(!cmp)}><GitCompare />{t("cmp.title")}</Button>}
@@ -174,28 +188,18 @@ export default function RunDetail() {
           </section>)}
         </CardContent>
       </Card>}
-      {(run.control_type === "ipsec" || run.control_type === "multi") && <Card className="mb-6"><CardHeader><CardTitle>{t("ipsec.results" as never)}</CardTitle></CardHeader>
-        <p className="px-5 pb-3 text-xs text-muted">{t("ipsec.notice" as never)}</p>
-        {run.ipsec_observations?.length ? <DataTable rows={run.ipsec_observations} rowKey={(r) => `${r.target}:${r.port}:${r.ike_version}`} columns={[
-          { key: "target", header: "Target", values: (r) => [r.target], render: (r) => r.target },
-          { key: "port", header: "UDP", values: (r) => [String(r.port)], render: (r) => r.port },
-          { key: "version", header: "IKE", values: (r) => [r.ike_version], render: (r) => r.ike_version || "—" },
-          { key: "status", header: "Probe", values: (r) => [r.status], render: (r) => r.status },
-          { key: "verdict", header: "Policy", values: (r) => [r.verdict], render: (r) => <Badge tone={r.verdict === "compliant" ? "success" : r.verdict === "non_compliant" ? "danger" : "warning"}>{r.verdict}</Badge> },
-          { key: "proposal", header: "Observed proposal", values: (r) => [JSON.stringify(r.proposal)], render: (r) => <span className="text-xs">{Object.entries(r.proposal).map(([k, v]) => `${k}: ${v}`).join(" · ") || "Non déterminable"}</span> },
-        ]} /> : <Empty>—</Empty>}
-      </Card>}
-      {!!run.ssh_observations?.length && <Card className="mb-6"><CardHeader><CardTitle>SSH audit</CardTitle></CardHeader>
-        <p className="px-5 pb-3 text-xs text-muted">Unauthenticated protocol observations from ssh-audit; authentication and rate tests are not performed.</p>
-        <DataTable rows={run.ssh_observations} rowKey={(r) => `${r.target}:${r.port}`} columns={[
+      {(run.control_type === "ipsec" || run.control_type === "multi") && <IpsecObservations observations={run.ipsec_observations ?? []} />}
+      {(run.control_type === "ssh" || run.control_type === "multi") && <Card className="mb-6"><CardHeader><CardTitle>SSH audit</CardTitle></CardHeader>
+        <p className="px-5 pb-3 text-xs text-muted">{t("ssh.gradeHint" as never)} {t("ssh.auditLimits" as never)}</p>
+        {run.ssh_observations?.length ? <DataTable rows={run.ssh_observations} rowKey={(r) => `${r.target}:${r.port}`} columns={[
           { key: "target", header: "Target", values: (r) => [r.target], render: (r) => r.target },
           { key: "port", header: "TCP", values: (r) => [String(r.port)], render: (r) => r.port },
           { key: "status", header: "Probe", values: (r) => [r.status], render: (r) => r.status },
-          { key: "verdict", header: "Policy", values: (r) => [r.verdict], render: (r) => <Badge tone={r.verdict === "compliant" ? "success" : r.verdict === "non_compliant" ? "danger" : "warning"}>{r.verdict}</Badge> },
+          { key: "grade", header: t("ssh.grade" as never), values: (r) => [sshGrade(r, run.findings) ?? "NOT_EVALUATED"], sort: (r) => sshGradeRank(sshGrade(r, run.findings)), render: (r) => <GradeBadge grade={sshGrade(r, run.findings)} title={t("ssh.gradeHint" as never)} /> },
           { key: "banner", header: "Banner", values: (r) => [r.banner], render: (r) => <code className="text-xs">{r.banner || "—"}</code> },
           { key: "fingerprints", header: "Host key fingerprints", values: (r) => Object.values(r.fingerprints).map(String), render: (r) => <code className="break-all text-xs">{Object.entries(r.fingerprints).map(([key, value]) => `${key}: ${String(value)}`).join(" · ") || "—"}</code> },
           { key: "algorithms", header: "Observed algorithms", values: (r) => Object.values(r.algorithms).flat(), render: (r) => <span className="text-xs">{Object.entries(r.algorithms).flatMap(([k, v]) => v.map((x) => `${k}: ${x}`)).join(" · ") || "Indeterminate"}</span> },
-        ]} />
+        ]} /> : <p role="status" className="mx-5 mb-5 rounded-lg border border-dashed p-4 text-sm">{t("ssh.noObservation" as never)}</p>}
       </Card>}
       {!!run.service_observations?.length && <Card className="mb-6"><CardHeader><CardTitle>{t("service.results" as never)}</CardTitle></CardHeader>
         <p className="px-5 pb-3 text-xs text-muted">{t("service.resultsHint" as never)}</p>

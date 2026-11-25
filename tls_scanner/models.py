@@ -159,3 +159,5 @@ class ScanJob:
     tls_check_options: dict[str, dict[str, Any]] = field(default_factory=dict)
     tls_check_requested_names: dict[str, tuple[str, ...]] = field(default_factory=dict)
     tls_check_results: dict[str, tuple[Any, ...]] = field(default_factory=dict)
+    # Versioned TLS grade split; keyed by the stable endpoint id.
+    grade_assessments: dict[str, dict[str, str]] = field(default_factory=dict)
