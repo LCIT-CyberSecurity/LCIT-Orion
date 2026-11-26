@@ -203,7 +203,7 @@ function exposureMetrics(node: MapNode, t: Translate) {
       severity.low ? `${t("map.lowShort")}${severity.low}` : "",
     ].filter(Boolean).join("   ");
     return {
-      subtitle: [node.value || node.name, node.ports ? `:${node.ports}` : ""].filter(Boolean).join(" · "),
+      subtitle: [node.dns_name, node.value || node.name, node.ports ? `:${node.ports}` : ""].filter(Boolean).join(" · "),
       metrics: scan ? `${endpointCount} ${t("map.endpoints")}` : t("map.notScannedState"),
       severity: scan ? findingSummary || (endpointCount ? t("map.noFindings") : t("map.notScannedState")) : "",
       ratio: scan ? 1 : 0,
@@ -212,7 +212,7 @@ function exposureMetrics(node: MapNode, t: Translate) {
   if (!exposure || !("targets" in exposure)) {
     const count = node.count ?? 0;
     return {
-      subtitle: node.kind === "device" ? node.ip_address || t("map.device") : `${count} ${t("map.targets")}`,
+      subtitle: node.kind === "device" ? [node.dns_name, node.ip_address].filter(Boolean).join(" · ") || t("map.device") : `${count} ${t("map.targets")}`,
       metrics: node.kind === "device" ? t(`map.provenance.${node.provenance || "DECLARED"}` as keyof Messages) : t("map.notScannedState"),
       severity: "",
       ratio: 0,
