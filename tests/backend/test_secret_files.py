@@ -150,7 +150,8 @@ def test_dev_migration_preserves_active_values_and_removes_only_secret_env(tmp_p
         "ORION_SESSION_SECRET": "active-session-value",
     }
     inspect = lambda _root, _project, service: postgres if service == "postgres" else api
-    with patch.dict(migration["migrate"].__globals__, inspect_service=inspect):
+    resolved = {"services": {"postgres": {"environment": postgres}, "api": {"environment": api}}}
+    with patch.dict(migration["migrate"].__globals__, inspect_service=inspect, resolved_compose=lambda *_: resolved):
         migration["migrate"](root, "orion-dev")
 
     secrets = root / "data/secrets"
@@ -178,12 +179,42 @@ def test_dev_migration_conflict_does_not_partially_create_files(tmp_path: Path) 
         "ORION_SESSION_SECRET": "active-session-value",
     }
     inspect = lambda _root, _project, service: postgres if service == "postgres" else api
-    with patch.dict(migration["migrate"].__globals__, inspect_service=inspect):
+    resolved = {"services": {"postgres": {"environment": postgres}, "api": {"environment": api}}}
+    with patch.dict(migration["migrate"].__globals__, inspect_service=inspect, resolved_compose=lambda *_: resolved):
         with pytest.raises(migration["MigrationError"], match="differs"):
             migration["migrate"](tmp_path, "orion-dev")
 
     assert not (secrets / "postgres_password").exists()
     assert env_file.read_text(encoding="utf-8") == "DEV_DB_PASSWORD=old\nDEV_SESSION_SECRET=session\n"
+
+
+def test_dev_migration_refuses_stale_env_before_writing_secrets(tmp_path: Path) -> None:
+    migration = runpy.run_path(str(ROOT / "ops/dev/migrate-running-secrets.py"))
+    env_file = tmp_path / ".env"
+    env_file.write_text("DEV_DB_PASSWORD=next-db-value\nDEV_SESSION_SECRET=next-session-value\n", encoding="utf-8")
+    postgres = {"POSTGRES_PASSWORD": "active-db-value"}
+    api = {
+        "ORION_DATABASE_URL": "postgresql+psycopg://orion:active-db-value@postgres:5432/orion",
+        "ORION_SESSION_SECRET": "active-session-value",
+    }
+    inspect = lambda _root, _project, service: postgres if service == "postgres" else api
+    resolved = {
+        "services": {
+            "postgres": {"environment": {"POSTGRES_PASSWORD": "next-db-value"}},
+            "api": {
+                "environment": {
+                    **api,
+                    "ORION_SESSION_SECRET": "next-session-value",
+                    "ORION_DATABASE_URL": "postgresql+psycopg://orion:next-db-value@postgres:5432/orion",
+                }
+            },
+        }
+    }
+    with patch.dict(migration["migrate"].__globals__, inspect_service=inspect, resolved_compose=lambda *_: resolved):
+        with pytest.raises(migration["MigrationError"], match="differ from deployment"):
+            migration["migrate"](tmp_path, "orion-dev")
+    assert not (tmp_path / "data/secrets").exists()
+    assert env_file.read_text(encoding="utf-8") == "DEV_DB_PASSWORD=next-db-value\nDEV_SESSION_SECRET=next-session-value\n"
 
 
 def test_example_env_has_no_direct_secret_values() -> None:

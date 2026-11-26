@@ -40,6 +40,20 @@ def inspect_service(root: Path, project: str, service: str) -> dict[str, str]:
         raise MigrationError("Could not safely read the active container configuration") from None
 
 
+def resolved_compose(root: Path, project: str) -> dict[str, object]:
+    try:
+        result = subprocess.run(
+            [
+                "docker", "compose", "-f", str(root / "ops/dev/compose.dev.yaml"),
+                "--env-file", str(root / ".env"), "-p", project, "config", "--format", "json",
+            ],
+            check=True, capture_output=True, text=True,
+        )
+        return json.loads(result.stdout)
+    except (subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+        raise MigrationError("Could not safely resolve the deployment configuration") from None
+
+
 def atomic_secret(path: Path, value: str, gid: int) -> None:
     if not value or "\x00" in value:
         raise MigrationError("An active required secret is empty or invalid")
@@ -88,11 +102,20 @@ def update_env(path: Path, gid: int) -> None:
 
 
 def migrate(root: Path, project: str) -> None:
+    resolved = resolved_compose(root, project)
     compose_env = inspect_service(root, project, "postgres")
     api_env = inspect_service(root, project, "api")
+    configured_pg = resolved["services"]["postgres"]["environment"].get("POSTGRES_PASSWORD", "")
+    configured_api = resolved["services"]["api"]["environment"]
     pg_password = compose_env.get("POSTGRES_PASSWORD", "")
     session = api_env.get("ORION_SESSION_SECRET", "")
     database_url = api_env.get("ORION_DATABASE_URL", "")
+    if (
+        configured_pg != pg_password
+        or configured_api.get("ORION_SESSION_SECRET") != session
+        or configured_api.get("ORION_DATABASE_URL") != database_url
+    ):
+        raise MigrationError("Active containers differ from deployment configuration; no migration was applied")
     parsed = urlsplit(database_url)
     database_password = unquote(parsed.password or "")
     if not pg_password or not session or not parsed.username or not database_password:
