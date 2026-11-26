@@ -61,6 +61,40 @@ Cases where the script stops on purpose, without changing anything:
 into `.env` (mode `0600`). Roll back the code and `compose.yaml` together. When you return to the current release,
 `update` migrates the values again.
 
+### Integration Sandbox (`ops/dev/compose.dev.yaml`)
+
+The integration stack has a separate migration because its database password and session secret were historically
+injected directly into container environments. Run this once from the Sandbox deployment directory while the old
+`orion-dev` containers are still running:
+
+```bash
+python3 ops/dev/migrate-running-secrets.py --directory /home/cdev/orion-dev
+```
+
+The helper reads the active PostgreSQL and API container configuration internally; it does not print values. It
+refuses to proceed if the active database URL password does not match PostgreSQL, a required value is unavailable,
+or a protected file already contains a different value. It writes the unchanged credentials to
+`data/secrets/{postgres_password,database_password,session_secret}` with mode `0440`, then removes only
+`DEV_DB_PASSWORD` and `DEV_SESSION_SECRET` from `.env` and sets `DEV_SECRET_GID` to the secret directory's group.
+No password is generated or rotated. Database and application volumes are untouched.
+
+After deploying the updated dev Compose file, validate it without printing resolved configuration and recreate only
+the backend services:
+
+```bash
+docker compose -f ops/dev/compose.dev.yaml --env-file .env config --quiet
+docker compose -f ops/dev/compose.dev.yaml --env-file .env up -d --build postgres api worker scheduler
+```
+
+The API receives database and session files; background services receive only the database file; PostgreSQL receives
+its own initialization secret. Existing PostgreSQL data keeps its current role password: `POSTGRES_PASSWORD_FILE`
+does not change a role password on an initialized volume.
+
+To roll back code before removing the protected files, restore the original direct variables from an approved
+encrypted secret backup into `.env` with mode `0600`, restore the previous dev Compose file, validate it, then recreate
+the backend services. Do not delete `data/secrets` until rollback is verified. Never dump container environments to a
+terminal or ticket to recover a value.
+
 ## Set or change a connector credential
 
 Write the new value through a prompt into a temporary file in the same directory, then move it in place. The file

@@ -36,6 +36,7 @@ from orion_app.models import (
 )
 from orion_app.services import audit
 from orion_app.services.snmp_discovery import MAX_TARGETS
+from orion_app.services.map_dns import enrich_map_nodes
 
 router = APIRouter(prefix="/api/map", tags=["network-map"])
 reader = require_role(Role.USER)
@@ -210,6 +211,7 @@ class GraphNodeOut(BaseModel):
     child_count: int | None = None
     device_type: str | None = None
     ip_address: str | None = None
+    dns_name: str | None = None
     provenance: str | None = None
     exposure: dict | None = None
 
@@ -559,7 +561,7 @@ def graph(
         latest = _target_latest(db, {item.value for item in targets})
         nodes = [{"id": f"target:{item.id}", "kind": "host", "name": item.name or item.value, "value": item.value,
                   "target_id": str(item.id), "ports": item.ports, "exposure": _target_result(item, latest)} for item in targets]
-        return {"scope": {"group": {"id": str(group.id), "name": group.name}}, "mode": mode, "nodes": nodes, "links": [],
+        return {"scope": {"group": {"id": str(group.id), "name": group.name}}, "mode": mode, "nodes": enrich_map_nodes(nodes), "links": [],
                 "truncated": offset + len(targets) < total, "next_offset": offset + len(targets) if offset + len(targets) < total else None}
 
     if zone_id:
@@ -582,7 +584,7 @@ def graph(
                           "target_id": str(focused.id), "ports": focused.ports, "exposure": _target_latest(db, {focused.value}).get(focused.value)})
         if mode == "network":
             nodes += [{**_device_out(item), "id": f"device:{item.id}", "kind": "device"} for item in devices]
-        return {"scope": {"zone": _zone_out(db, zone)}, "mode": mode, "nodes": nodes,
+        return {"scope": {"zone": _zone_out(db, zone)}, "mode": mode, "nodes": enrich_map_nodes(nodes),
                 "links": [_link_out(item) for item in links], "truncated": offset + len(targets) < len(target_ids),
                 "next_offset": offset + len(targets) if offset + len(targets) < len(target_ids) else None}
 
@@ -650,7 +652,7 @@ def graph(
                 nodes.append({"id": f"target:{focused.id}", "kind": "host", "name": focused.name or focused.value, "value": focused.value,
                               "target_id": str(focused.id), "ports": focused.ports, "exposure": _target_result(focused, latest)})
         return {"scope": {"si": {"id": str(si.id), "name": si.name, "description": si.description}}, "mode": mode,
-                "nodes": nodes, "links": [_link_out(item) for item in network_links],
+                "nodes": enrich_map_nodes(nodes), "links": [_link_out(item) for item in network_links],
                 "truncated": (flat_targets and offset + limit < len(target_list)) or (expand_unassigned and offset + limit < len(unassigned)),
                 "next_offset": offset + limit if ((flat_targets and offset + limit < len(target_list)) or (expand_unassigned and offset + limit < len(unassigned))) else None}
 
@@ -690,7 +692,7 @@ def graph(
                           "target_id": str(focused.id), "ports": focused.ports,
                           "exposure": _target_latest(db, {focused.value}).get(focused.value)})
     truncated = expand_unassigned and offset + limit < len(unassigned)
-    return {"scope": {}, "mode": mode, "nodes": nodes, "links": [], "truncated": truncated,
+    return {"scope": {}, "mode": mode, "nodes": enrich_map_nodes(nodes), "links": [], "truncated": truncated,
             "next_offset": offset + limit if truncated else None,
             "totals": {"systems": len(systems), "targets": len(all_targets)}}
 

@@ -20,9 +20,11 @@ describe("IPsec observation details", () => {
     expect(screen.getByText(/encryption: AES-GCM/)).toBeInTheDocument();
   });
 
-  it("hides the observations section when every probe times out", () => {
-    const { container } = render(<I18nProvider><IpsecObservations observations={[observations[0]]} /></I18nProvider>);
-    expect(container.firstChild).toBeNull();
+  it("shows an empty state without listing probes when every probe times out", () => {
+    render(<I18nProvider><IpsecObservations observations={[observations[0]]} /></I18nProvider>);
+    expect(screen.getByRole("status")).toHaveTextContent(/No IKE response was received during discovery/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/1 silent or indeterminate probe results are retained/i);
+    expect(screen.queryByText("192.168.1.10")).toBeNull();
   });
 
   it("keeps local probe errors separate from responding services", () => {
