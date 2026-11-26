@@ -6,11 +6,11 @@ Orion keeps the cryptographic grade separate from exposure context. A weak ciphe
 
 Open **Targets**, edit a target and use **Endpoint exposure context**. Add a record for the protocol and port (TLS, IPsec/IKE or SSH), optionally with FQDN/SNI. Enter the current state, supporting source, method, justification and confidence. Operators can record a proposal; only an administrator can validate it. Each record is scoped to that target, protocol, port and SNI.
 
-Choose **Unknown / unverified** when there is no sufficient evidence. No external connectivity probe runs automatically. Public IP, public DNS, reverse DNS, a DMZ label, NAT, a reverse proxy or an internal scan do not establish Internet reachability.
+Choose **Unknown / unverified** when there is no sufficient evidence. By the approved default, an endpoint with an observed globally routable IP is classified **UNTRUST (assumed Internet exposure)** and its contextual severity is raised one level. This is a conservative risk assumption, not proof that the service is reachable; the report says that reachability is unverified. A validated endpoint-specific assessment overrides the default. Private, reserved and documentation addresses remain unknown unless separately assessed. Public DNS alone does not trigger the default. No external connectivity probe runs automatically.
 
 ## Read the scan result
 
-The scan detail and Network Map show the exposure snapshot that was captured when the scan was queued. Findings retain their intrinsic severity and add a contextual severity per endpoint. The current versioned matrix moves confirmed Internet-exposed findings up one level and confirmed non-Internet findings down one level (bounded between low and critical). Unknown, pending and informational evidence is not weighted and is shown as not evaluated. The cryptographic A–F grade and compliance verdict do not change.
+The scan detail and Network Map show the exposure snapshot used for the run. Findings retain their intrinsic severity and add a contextual severity per endpoint. The current versioned matrix moves assumed or confirmed Internet-exposed findings up one level and confirmed non-Internet findings down one level (bounded between low and critical). Unknown, pending and informational evidence is not weighted and is shown as not evaluated. The cryptographic A–F grade, PKI status and compliance verdict do not change.
 
 HTML and Markdown reports include the per-endpoint exposure evidence and the intrinsic/contextual severities. When CSV export is configured, a separate **CONTEXTUAL RISK CSV** is available. Reports preserve the run-time snapshot; changing evidence later does not rewrite an old run.
 

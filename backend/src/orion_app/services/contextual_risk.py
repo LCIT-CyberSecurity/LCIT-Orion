@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import csv
 import html
+import ipaddress
 from pathlib import Path
 from typing import Any
 
-MATRIX_VERSION = "exposure-risk-v1"
+MATRIX_VERSION = "exposure-risk-v2"
 _ORDER = ("low", "medium", "high", "critical")
 _ALIASES = {"moderate": "medium", "informational": "info"}
 
@@ -16,26 +17,49 @@ def exposure_for_endpoint(endpoint: dict[str, Any], snapshot: dict[str, Any]) ->
                and str(item.get("port")) == str(endpoint.get("port", ""))
                and item.get("target_value") in {endpoint.get("hostname", ""), endpoint.get("ip_address", "")}
                and (not item.get("sni") or item.get("sni") == endpoint.get("hostname", ""))]
-    return sorted(matches, key=lambda item: (not bool(item.get("sni")), not bool(item.get("validated"))))[0] if matches else None
+    # A validated operator assessment always wins. Otherwise the owner-approved
+    # default treats a globally routable address observed by the scan as UNTRUST.
+    validated = [item for item in matches if item.get("validated")]
+    if validated:
+        return sorted(validated, key=lambda item: not bool(item.get("sni")))[0]
+    address = endpoint.get("ip_address")
+    try:
+        is_public = ipaddress.ip_address(str(address)).is_global
+    except ValueError:
+        is_public = False
+    if is_public:
+        return {"protocol": "tls", "state": "internet_assumed_public_ip", "classification": "UNTRUST",
+                "validated": False, "source": "observed endpoint IP", "evidence_method": "global_ip_default",
+                "justification": "Assumed Internet exposure by owner-approved default for a globally routable IP; service reachability is not verified.",
+                "confidence": "low", "observed_ip": str(address)}
+    return sorted(matches, key=lambda item: bool(item.get("sni")))[0] if matches else None
 
 
 def assess(intrinsic_severity: str, exposure: dict[str, Any] | None) -> dict[str, Any]:
-    """Adjust only confirmed, validated Internet exposure; unknown never means safe/internal."""
+    """Apply the versioned exposure matrix without changing crypto grades or intrinsic severity."""
     source = exposure or {}
     state = source.get("state", "unknown")
+    assumed_public_ip = state == "internet_assumed_public_ip" and source.get("classification") == "UNTRUST"
     confirmed = bool(source.get("validated")) and state in {"internet_confirmed", "not_internet_confirmed"}
     base = _ALIASES.get(str(intrinsic_severity).lower(), str(intrinsic_severity).lower())
-    if not confirmed or base not in _ORDER:
+    if (not confirmed and not assumed_public_ip) or base not in _ORDER:
+        exposure_state = source.get("classification", state)
+        if state == "unknown":
+            exposure_state = "unknown"
         return {"matrix_version": MATRIX_VERSION, "assessed": False, "contextual_severity": None,
-                "intrinsic_severity": intrinsic_severity, "exposure_state": "unknown" if not confirmed else state,
-                "reason": "exposure is unknown or not validated; contextual weighting was not evaluated"}
+                "intrinsic_severity": intrinsic_severity, "exposure_state": exposure_state,
+                "reason": ("exposure context retained; this finding severity is not weighted by the matrix"
+                           if assumed_public_ip or confirmed else
+                           "exposure is unknown or pending; contextual weighting was not evaluated")}
     index = _ORDER.index(base)
-    delta = 1 if state == "internet_confirmed" else -1
+    delta = 1 if state in {"internet_confirmed", "internet_assumed_public_ip"} else -1
     adjusted = _ORDER[max(0, min(len(_ORDER) - 1, index + delta))]
     direction = "increased" if delta > 0 else "reduced"
+    reason = ("assumed UNTRUST exposure from globally routable endpoint IP increased one severity level; service reachability is not verified"
+              if assumed_public_ip else f"confirmed exposure {direction} one severity level")
     return {"matrix_version": MATRIX_VERSION, "assessed": True, "contextual_severity": adjusted,
-            "intrinsic_severity": intrinsic_severity, "exposure_state": state,
-            "reason": f"confirmed exposure {direction} one severity level", "source": source.get("source", ""),
+            "intrinsic_severity": intrinsic_severity, "exposure_state": source.get("classification", state),
+            "reason": reason, "source": source.get("source", ""),
             "evidence_method": source.get("evidence_method", ""), "justification": source.get("justification", ""),
             "confidence": source.get("confidence", "unknown"), "observed_at": source.get("observed_at"),
             "validated_at": source.get("validated_at")}
@@ -69,7 +93,7 @@ def append_html(path: Path, rows: list[dict[str, Any]]) -> None:
     body = "".join("<tr>" + "".join(f"<td>{html.escape(str(row[key]))}</td>" for key in
                 ("endpoint", "finding", "intrinsic_severity", "contextual_severity", "exposure", "source", "method", "justification", "confidence")) + "</tr>" for row in rows)
     section = ('<section aria-label="Contextual exposure risk"><h2>Contextual exposure risk</h2>'
-               '<p>Cryptographic grade and intrinsic severity are unchanged. Unknown or unvalidated exposure is not weighted.</p>'
+               '<p>Cryptographic grade and intrinsic severity are unchanged. Unknown and pending exposure is not weighted; a globally routable endpoint IP receives the documented UNTRUST assumption.</p>'
                '<table><thead><tr><th>Endpoint</th><th>Finding</th><th>Intrinsic severity</th><th>Contextual severity</th><th>Exposure</th><th>Source</th><th>Method</th><th>Justification</th><th>Confidence</th></tr></thead>'
                f'<tbody>{body}</tbody></table><p>Matrix: {MATRIX_VERSION}</p></section>')
     marker = "</body>"
@@ -81,7 +105,7 @@ def append_markdown(path: Path, rows: list[dict[str, Any]]) -> None:
     if not rows:
         return
     with path.open("a", encoding="utf-8") as stream:
-        stream.write("\n## Contextual exposure risk\n\nCryptographic grades and intrinsic severity remain unchanged. Unknown or unvalidated exposure is not weighted.\n\n")
+        stream.write("\n## Contextual exposure risk\n\nCryptographic grades and intrinsic severity remain unchanged. Unknown and pending exposure is not weighted; a globally routable endpoint IP receives the documented UNTRUST assumption.\n\n")
         stream.write("| Endpoint | Finding | Intrinsic severity | Contextual severity | Exposure | Source | Method | Justification | Confidence |\n|---|---|---|---|---|---|---|---|---|\n")
         for row in rows:
             cells = [row[k] for k in ("endpoint", "finding", "intrinsic_severity", "contextual_severity", "exposure", "source", "method", "justification", "confidence")]

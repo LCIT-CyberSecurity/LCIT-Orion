@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +13,7 @@ from orion_app.services.contextual_risk import (
     append_html,
     append_markdown,
     assess,
+    exposure_for_endpoint,
     report_rows,
 )
 
@@ -52,6 +54,36 @@ def test_report_rows_snapshot_per_endpoint_and_never_infer_exposure() -> None:
     assert rows[0]["exposure"] == "unknown"
     assert rows[0]["intrinsic_severity"] == "high"
     assert model["endpoints"][0]["overall_grade"] == "D"
+
+
+@pytest.mark.parametrize("address", ["8.8.8.8", "1.1.1.1", "2001:4860:4860::8888"])
+def test_globally_routable_endpoint_ip_gets_assumed_untrust_context(address: str) -> None:
+    assert ipaddress.ip_address(address).is_global
+    endpoint = {"hostname": "service.example", "ip_address": address, "port": 443}
+    exposure = exposure_for_endpoint(endpoint, {"exposure_snapshot": []})
+    assert exposure["state"] == "internet_assumed_public_ip"
+    assert exposure["classification"] == "UNTRUST"
+    assert exposure["validated"] is False
+    risk = assess("high", exposure)
+    assert risk["assessed"] is True
+    assert risk["contextual_severity"] == "critical"
+    assert risk["exposure_state"] == "UNTRUST"
+    assert "reachability is not verified" in risk["reason"]
+
+
+@pytest.mark.parametrize("address", ["192.168.1.7", "10.0.0.1", "127.0.0.1", "203.0.113.4", "not-an-ip"])
+def test_non_global_or_unparseable_endpoint_ip_remains_unknown(address: str) -> None:
+    endpoint = {"hostname": "service.example", "ip_address": address, "port": 443}
+    assert exposure_for_endpoint(endpoint, {"exposure_snapshot": []}) is None
+
+
+def test_validated_non_internet_exposure_overrides_public_ip_default() -> None:
+    endpoint = {"hostname": "service.example", "ip_address": "8.8.8.8", "port": 443}
+    evidence = {"protocol": "tls", "port": 443, "target_value": "service.example", "sni": "",
+                "state": "not_internet_confirmed", "validated": True, "source": "firewall review"}
+    exposure = exposure_for_endpoint(endpoint, {"exposure_snapshot": [evidence]})
+    assert exposure is evidence
+    assert assess("high", exposure)["contextual_severity"] == "medium"
 
 
 def test_only_admin_can_validate_and_confirmed_evidence_needs_provenance() -> None:
