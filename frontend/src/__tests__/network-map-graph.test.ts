@@ -144,6 +144,18 @@ describe("network map graph presentation", () => {
     expect(card.style.mapSeverity).toBe("map.highShort1");
   });
 
+  it("shows a resolved PTR name beside the IP in host and device cards", () => {
+    const host = mapCardAttributes({
+      id: "target:t2", kind: "host", name: "host label", value: "192.0.2.15", dns_name: "reverse.example.test",
+    }, translate);
+    const device = mapCardAttributes({
+      id: "device:d2", kind: "device", name: "router", ip_address: "192.0.2.16", dns_name: "router.example.test",
+    }, translate);
+
+    expect(host.style.mapSubtitle).toBe("reverse.example.test · 192.0.2.15");
+    expect(device.style.mapSubtitle).toBe("router.example.test · 192.0.2.16");
+  });
+
   it("uses distinct Lucide SVG symbols for network equipment types", () => {
     const router = mapCardAttributes({ id: "device:r1", kind: "device", name: "edge-router", device_type: "router" }, translate);
     const firewall = mapCardAttributes({ id: "device:f1", kind: "device", name: "edge-firewall", device_type: "firewall" }, translate);
