@@ -1,12 +1,21 @@
 # Integration/dev stack. Run on the integration VM with a dedicated project name and ports >= 5000.
 name: orion-dev
+x-backend-environment: &env
+  ORION_DATABASE_URL: postgresql+psycopg://orion@postgres:5432/orion
+  ORION_DATABASE_PASSWORD_FILE: /run/secrets/database_password
+  ORION_ENVIRONMENT: development
+  ORION_COOKIE_SECURE: "false"
+  ORION_STORAGE_ROOT: /var/lib/orion
+  ORION_SESSION_SECRET_REQUIRED: "false"
 services:
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: orion
-      POSTGRES_PASSWORD: ${DEV_DB_PASSWORD:?set DEV_DB_PASSWORD}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
       POSTGRES_DB: orion
+    secrets: [postgres_password]
+    group_add: ["${DEV_SECRET_GID:-1000}"]
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U orion"]
@@ -14,12 +23,12 @@ services:
       retries: 20
   api:
     build: {context: ../.., dockerfile: ops/docker/backend.Dockerfile, args: {WITH_DEV: "true"}}
-    environment: &env
-      ORION_DATABASE_URL: postgresql+psycopg://orion:${DEV_DB_PASSWORD}@postgres:5432/orion
-      ORION_ENVIRONMENT: development
-      ORION_COOKIE_SECURE: "false"
-      ORION_SESSION_SECRET: ${DEV_SESSION_SECRET:-dev-only-insecure-secret-change-me}
-      ORION_STORAGE_ROOT: /var/lib/orion
+    environment:
+      <<: *env
+      ORION_SESSION_SECRET_FILE: /run/secrets/session_secret
+      ORION_SESSION_SECRET_REQUIRED: "true"
+    secrets: [database_password, session_secret]
+    group_add: ["${DEV_SECRET_GID:-1000}"]
     volumes: [data:/var/lib/orion]
     depends_on: {postgres: {condition: service_healthy}}
     ports: ["5001:8000"]
@@ -27,14 +36,25 @@ services:
   worker:
     build: {context: ../.., dockerfile: ops/docker/backend.Dockerfile, args: {WITH_DEV: "true"}}
     environment: *env
+    secrets: [database_password]
+    group_add: ["${DEV_SECRET_GID:-1000}"]
     volumes: [data:/var/lib/orion]
     depends_on: [api]
     command: python -m orion_app.workers.worker
   scheduler:
     build: {context: ../.., dockerfile: ops/docker/backend.Dockerfile, args: {WITH_DEV: "true"}}
     environment: *env
+    secrets: [database_password]
+    group_add: ["${DEV_SECRET_GID:-1000}"]
     depends_on: [api]
     command: python -m orion_app.scheduler.scheduler
 volumes:
   pgdata:
   data:
+secrets:
+  postgres_password:
+    file: ../../data/secrets/postgres_password
+  database_password:
+    file: ../../data/secrets/database_password
+  session_secret:
+    file: ../../data/secrets/session_secret

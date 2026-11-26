@@ -78,4 +78,7 @@ def test_generic_profile_runs_tls_and_ipsec_together_without_mixing_policies(ope
     assert result["endpoints"]
     assert result["ipsec_observations"]
     formats = {report["format"] for report in result["reports"]}
-    assert {"html", "ipsec_html"} <= formats
+    # Multiprotocol runs keep the single unified HTML report and protocol-specific CSV exports.
+    assert "html" in formats
+    assert "ipsec_html" not in formats
+    assert "ipsec_csv" in formats
