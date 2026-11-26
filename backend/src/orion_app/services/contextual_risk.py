@@ -43,9 +43,7 @@ def assess(intrinsic_severity: str, exposure: dict[str, Any] | None) -> dict[str
     confirmed = bool(source.get("validated")) and state in {"internet_confirmed", "not_internet_confirmed"}
     base = _ALIASES.get(str(intrinsic_severity).lower(), str(intrinsic_severity).lower())
     if (not confirmed and not assumed_public_ip) or base not in _ORDER:
-        exposure_state = source.get("classification", state)
-        if state == "unknown":
-            exposure_state = "unknown"
+        exposure_state = source.get("classification", state) if assumed_public_ip else state if confirmed else "unknown"
         return {"matrix_version": MATRIX_VERSION, "assessed": False, "contextual_severity": None,
                 "intrinsic_severity": intrinsic_severity, "exposure_state": exposure_state,
                 "reason": ("exposure context retained; this finding severity is not weighted by the matrix"
