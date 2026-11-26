@@ -32,7 +32,7 @@ def exposure_for_endpoint(endpoint: dict[str, Any], snapshot: dict[str, Any]) ->
                 "validated": False, "source": "observed endpoint IP", "evidence_method": "global_ip_default",
                 "justification": "Assumed Internet exposure by owner-approved default for a globally routable IP; service reachability is not verified.",
                 "confidence": "low", "observed_ip": str(address)}
-    return sorted(matches, key=lambda item: bool(item.get("sni")))[0] if matches else None
+    return sorted(matches, key=lambda item: (not bool(item.get("sni")), not bool(item.get("validated"))))[0] if matches else None
 
 
 def assess(intrinsic_severity: str, exposure: dict[str, Any] | None) -> dict[str, Any]:
