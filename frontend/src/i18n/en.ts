@@ -1327,6 +1327,7 @@ export const en = {
   "probe.taskQueued": "Task submitted. Refresh tasks after synchronization to see its status.",
   "probe.targetLimit": "Maximum 256 targets per task.",
   "probe.recentTasks": "Recent tasks",
+  "probe.syncAndRefresh": "Sync probe and refresh",
   "probe.refreshTasks": "Refresh tasks",
   "probe.taskStatus": "Status",
   "probe.taskCreated": "Created",

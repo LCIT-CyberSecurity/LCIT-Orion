@@ -131,6 +131,23 @@ export function RemoteProbes() {
     }
   }
 
+  async function syncTasks() {
+    if (!taskProbe) return;
+    setBusy(true);
+    setActionError(undefined);
+    setMessage("");
+    try {
+      await api(`/remote-probes/${taskProbe.id}/sync`, { method: "POST" });
+      setTasks(await api<ProbeTask[]>(`/remote-probes/${taskProbe.id}/tasks`));
+      setMessage(t("probe.syncDone"));
+      await reload();
+    } catch (cause) {
+      setActionError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function dispatchTask() {
     if (!taskProbe) return;
     const ports = taskPorts.split(/[\s,;]+/).filter(Boolean).map(Number);
@@ -234,7 +251,7 @@ export function RemoteProbes() {
           {taskTargets.length >= 256 && <p className="text-xs text-muted">{t("probe.targetLimit")}</p>}
           <div className="flex justify-end"><Button disabled={!taskProbe.capabilities.includes(taskKind) || !taskTargets.length || !validPorts || busy} onClick={() => void dispatchTask()}>{t("probe.dispatch")}</Button></div>
           <div>
-            <div className="mb-2 flex items-center justify-between"><h3 className="font-semibold">{t("probe.recentTasks")}</h3><Button size="sm" variant="outline" disabled={busy} onClick={() => void refreshTasks()}>{t("probe.refreshTasks")}</Button></div>
+            <div className="mb-2 flex items-center justify-between"><h3 className="font-semibold">{t("probe.recentTasks")}</h3><div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => void syncTasks()}>{t("probe.syncAndRefresh")}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => void refreshTasks()}>{t("probe.refreshTasks")}</Button></div></div>
             {tasks.length ? <Table><thead><tr><Th>{t("probe.taskKind")}</Th><Th>{t("probe.taskTargets")}</Th><Th>{t("probe.taskPorts")}</Th><Th>{t("probe.taskStatus")}</Th><Th>{t("probe.taskCreated")}</Th></tr></thead><tbody>{tasks.map((task) => <tr key={task.id}>
               <Td>{task.kind.toUpperCase()}</Td><Td>{task.targets.join(", ")}</Td><Td>{task.ports.join(", ") || "—"}</Td><Td><Badge tone={task.status === "completed" ? "success" : task.status === "failed" ? "danger" : "neutral"}>{task.status}</Badge>{task.error && <div className="text-xs text-danger">{task.error}</div>}</Td><Td className="whitespace-nowrap">{formatDate(task.created_at, locale)}</Td>
             </tr>)}</tbody></Table> : <p className="text-sm text-muted">{t("probe.noTasks")}</p>}

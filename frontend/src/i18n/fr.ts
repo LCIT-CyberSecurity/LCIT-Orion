@@ -1328,6 +1328,7 @@ export const fr: Messages = {
   "probe.taskQueued": "Tâche envoyée. Actualisez les tâches après synchronisation pour voir son état.",
   "probe.targetLimit": "Maximum de 256 cibles par tâche.",
   "probe.recentTasks": "Tâches récentes",
+  "probe.syncAndRefresh": "Synchroniser la sonde et actualiser",
   "probe.refreshTasks": "Actualiser les tâches",
   "probe.taskStatus": "État",
   "probe.taskCreated": "Créée",

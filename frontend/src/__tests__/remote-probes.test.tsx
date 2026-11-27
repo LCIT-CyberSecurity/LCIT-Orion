@@ -90,6 +90,7 @@ describe("Administration → remote probes", () => {
     };
     responses[`GET /remote-probes/${active.id}/tasks`] = [task];
     responses[`POST /remote-probes/${active.id}/tasks`] = { task_id: task.id, status: "queued" };
+    responses[`POST /remote-probes/${active.id}/sync`] = { events_received: 0, events_imported: 0, acknowledged_cursor: 0, acknowledgement_pending: false };
     wrap();
     const row = (await screen.findByText("dmz-probe")).closest("tr")!;
     fireEvent.click(within(row).getByRole("button", { name: "Tasks" }));
@@ -104,5 +105,8 @@ describe("Administration → remote probes", () => {
       kind: "tls", target_ids: ["target-1"], ports: [443], timeout_seconds: 5, workers: 4, policy: {},
     });
     expect(within(dialog).getByText("queued")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Sync probe and refresh" }));
+    await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.path.endsWith("/sync"))).toBe(true));
+    expect(calls.filter((call) => call.path === `/remote-probes/${active.id}/tasks`).length).toBeGreaterThanOrEqual(2);
   });
 });
