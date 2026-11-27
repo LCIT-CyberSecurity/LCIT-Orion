@@ -14,7 +14,9 @@ vi.mock("../api/client", async (original) => ({
   api: vi.fn(async (path: string, options: { method?: string; body?: Record<string, unknown> } = {}) => {
     calls.push({ path, method: options.method, body: options.body });
     if (path === "/schedules") return scheduleRows;
-    if (path === "/scan-definitions") return [{ id: "definition-1", name: "Nightly scan" }];
+    if (path === "/scan-definitions") return [{ id: "definition-1", name: "Nightly scan", control_type: "tls", enabled_controls: ["tls"] }];
+    if (path === "/remote-probes") return [{ id: "probe-1", name: "Probe East", network_zone_id: "zone-1", status: "active", capabilities: ["tls"] }];
+    if (path === "/map/zones") return [{ id: "zone-1", name: "East zone", target_ids: [] }];
     if (path.startsWith("/schedules/")) return scheduleRows.find((row) => row.id === path.split("/").at(-1));
     return undefined;
   }),
@@ -54,6 +56,19 @@ describe("DNS schedules", () => {
     await waitFor(() => expect(calls.some((call) => call.method === "PUT" && call.path === "/schedules/schedule-1")).toBe(true));
     expect(calls.find((call) => call.method === "PUT")?.body).toMatchObject({ task_type: "tls", definition_id: "definition-1",
       kind: "daily", params: { time: "05:30" }, timezone: "Europe/Paris", active: true });
+  });
+
+  it("saves selected remote probes and their observation zone on a TLS schedule", async () => {
+    render(<MemoryRouter><I18nProvider><Schedules /></I18nProvider></MemoryRouter>);
+    const newSchedule = await screen.findByRole("button", { name: "New schedule" });
+    await waitFor(() => expect(newSchedule).toBeEnabled());
+    fireEvent.click(newSchedule);
+    fireEvent.click(await screen.findByLabelText(/Probe East · East zone/));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.path === "/schedules")).toBe(true));
+    expect(calls.find((call) => call.method === "POST")?.body).toMatchObject({
+      task_type: "tls", definition_id: "definition-1", remote_probe_ids: ["probe-1"],
+    });
   });
 
   it("lets an operator edit a DNS schedule and requires fresh authorization", async () => {

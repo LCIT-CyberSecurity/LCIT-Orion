@@ -9,14 +9,36 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session as DbSession
 
-from orion_app.api.common import classification_of, get_or_404, ids_matching_filter, require_modify, set_classification
+from orion_app.api.common import (
+    classification_of,
+    get_or_404,
+    ids_matching_filter,
+    require_modify,
+    set_classification,
+)
 from orion_app.deps import get_db, require_role
 from orion_app.models import (
-    DefinitionGroup, DefinitionPolicy, DefinitionTarget, Policy, ReportTemplate, Role, ScanDefinition, ScanProfile,
-    ScanSchedule, Target, TargetGroup, User,
+    DefinitionGroup,
+    DefinitionPolicy,
+    DefinitionTarget,
+    Policy,
+    ReportTemplate,
+    Role,
+    ScanDefinition,
+    ScanProfile,
+    ScanSchedule,
+    Target,
+    TargetGroup,
+    User,
 )
+from orion_app.models.user import role_at_least
 from orion_app.services import audit, runs
-from orion_app.services.planner import PlanError, build_snapshot, fingerprint
+from orion_app.services.planner import (
+    PlanError,
+    build_snapshot,
+    fingerprint,
+    validate_remote_probe_selection,
+)
 from tls_scanner.exclusions import parse_entries
 from tls_scanner.models import ConfigError
 
@@ -187,13 +209,29 @@ def delete_definition(definition_id: uuid.UUID, db: DbSession = Depends(get_db),
     db.commit()
 
 
+class RunDefinitionBody(BaseModel):
+    remote_probe_ids: list[uuid.UUID] = Field(default_factory=list, max_length=8)
+
+
 @router.post("/{definition_id}/run", status_code=202)
-def run_definition(definition_id: uuid.UUID, request: Request, db: DbSession = Depends(get_db), user: User = Depends(reader)) -> dict:
+def run_definition(definition_id: uuid.UUID, request: Request, body: RunDefinitionBody | None = None,
+                   db: DbSession = Depends(get_db), user: User = Depends(reader)) -> dict:
     """Any USER can launch any definition (results are shared); modifying stays owner/operator only."""
     d = get_or_404(db, ScanDefinition, definition_id, "Scan definition")
     try:
         snapshot = build_snapshot(db, d, request.app.state.settings.max_targets_per_scan)
     except PlanError as error:
         raise HTTPException(422, str(error)) from error
+    probe_ids = (body or RunDefinitionBody()).remote_probe_ids
+    if len(set(probe_ids)) != len(probe_ids):
+        raise HTTPException(422, "Duplicate probe identifiers are not allowed")
+    if probe_ids:
+        if not role_at_least(user.role, Role.OPERATOR):
+            raise HTTPException(403, "Remote probe scans require the OPERATOR role")
+        try:
+            validate_remote_probe_selection(db, d, snapshot, [str(value) for value in probe_ids])
+        except PlanError as error:
+            raise HTTPException(422, str(error)) from error
+        snapshot["remote_probe_ids"] = sorted(str(value) for value in probe_ids)
     run, deduplicated = runs.create_run(db, snapshot, fingerprint(snapshot), definition=d, user=user)
     return {"run_id": str(run.id), "status": run.status, "deduplicated": deduplicated}

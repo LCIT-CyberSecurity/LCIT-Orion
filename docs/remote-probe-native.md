@@ -82,7 +82,23 @@ Le service s'exécute sans privilèges, avec `/var/lib/orion-probe` comme seul e
 - La liste des capacités reflète les exécutables disponibles au démarrage. Après installation/retrait d'un moteur, redémarrer le service.
 - La signature testée est une signature de laboratoire; aucune clé de publication officielle n'est fournie. La procédure d'upgrade/rollback, la règle pare-feu automatisée et la recette multi-zones restent à faire. L'installation et le démarrage sous Debian 13 restent `NOT RUN`. Le POC devra aussi mesurer CPU, mémoire, stockage et latence.
 
-## Lancement et suivi des tâches dans Orion
+## Lancement depuis une définition ou une planification
+
+Un opérateur peut lancer une définition depuis **Scans → Mesurer depuis une sonde**
+et sélectionner une ou plusieurs sondes actives. Une planification TLS peut utiliser
+la même sélection. Les sondes doivent annoncer tous les moteurs sélectionnés, et les
+zones choisies doivent collectivement contenir toutes les cibles affectées au scan.
+La sélection est revalidée à chaque lancement planifié. La tâche est exécutée par les
+sondes; le worker central ne lance jamais l'analyse locale en remplacement.
+
+Le parcours distant produit des observations techniques limitées, sans évaluation
+des politiques TLS/SSH/IPsec ni rapport de conformité. Les résultats sont conservés
+dans PostgreSQL central avec l'identité de sonde, la zone, les cibles et ports. Un
+timeout ou une absence de réponse est affiché comme indéterminé; cela ne prouve pas
+qu'un flux est fermé. Ce parcours requiert des cibles IP/FQDN et des ports explicites
+pour TLS; la découverte `fast`/`all` et les cibles CIDR sont rejetées.
+
+## Lancement et suivi des tâches manuelles dans Orion
 
 Dans **Administration → Sondes**, un opérateur peut lancer manuellement une tâche sur une sonde active. L'interface ne propose que les capacités annoncées par la sonde et les cibles explicitement affectées à sa zone. L'API centrale revérifie la capacité, l'affectation et le CIDR; la sonde résout ensuite les noms et refuse toute adresse hors de son périmètre local.
 
@@ -90,4 +106,4 @@ Les budgets avant dispatch sont de 32 couples cible-port pour TLS et SSH, et de 
 
 Le panneau permet aussi de synchroniser les événements depuis la sonde et de consulter ses 100 dernières tâches. La synchronisation importe les événements de façon dédupliquée et ne les acquitte qu'après leur commit dans PostgreSQL central. Une page contient au plus 20 événements; plusieurs synchronisations peuvent être nécessaires pour vider un tampon plus important.
 
-Ces tâches manuelles ne sont pas encore lancées depuis une définition ou une planification de scan Orion. Elles ne reprennent pas les profils et politiques de scan existants et ne sont pas encore présentées dans l'historique, la cartographie ou les rapports Orion. Les résultats restent des observations techniques rattachées à la tâche et à la sonde; ils ne modifient pas la note cryptographique d'un scan central.
+Les tâches lancées manuellement depuis **Administration → Sondes** restent séparées des définitions et de leurs planifications. Les résultats distants ne modifient pas la note cryptographique d'un scan central.

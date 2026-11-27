@@ -8,19 +8,40 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session as DbSession
 
 from orion_app.api.common import can_modify, get_or_404, ids_matching_filter
 from orion_app.deps import get_db, require_role
 from orion_app.models import (
-    DnsDiscovery, Role, RunEndpoint, RunFinding, RunIpsecObservation, RunSshObservation, ScanDefinition, ScanRun, ScanRunRequester, ScanSchedule,
-    ScheduleTrigger, User,
+    DnsDiscovery,
+    NetworkZone,
+    RemoteProbe,
+    RemoteProbeEvent,
+    RemoteProbeTask,
+    Role,
+    RunEndpoint,
+    RunFinding,
+    RunIpsecObservation,
+    RunSshObservation,
+    ScanDefinition,
+    ScanRun,
+    ScanRunRequester,
+    ScanSchedule,
+    ScheduleTrigger,
+    User,
 )
 from orion_app.models.scan import ACTIVE_STATUSES
 from orion_app.models.user import role_at_least
-from orion_app.services import audit, comparison, dashboard as dashboard_service, evolution as evolution_service, results, runs
+from orion_app.services import audit, comparison, results, runs
+from orion_app.services import dashboard as dashboard_service
+from orion_app.services import evolution as evolution_service
+from orion_app.services.planner import (
+    PlanError,
+    build_snapshot,
+    validate_remote_probe_selection,
+)
 from orion_app.services.schedule_calc import ScheduleError, next_after, validate
 from orion_app.services.trust_stores import public_snapshot
 
@@ -53,6 +74,8 @@ def run_plan(snapshot: dict | None) -> dict | None:
         "policies": [p.get("name") for p in [*snapshot.get("policies", []), *((snapshot.get("ipsec") or {}).get("policies", [])), *((snapshot.get("ssh") or {}).get("policies", []))]], "formats": snapshot.get("export_formats", []),
         "mail_security": {"domains": (snapshot.get("mail_security") or {}).get("domains", []),
                           "checks": [key for key, enabled in ((snapshot.get("mail_security") or {}).get("checks") or {}).items() if enabled]},
+        "remote_probe_ids": snapshot.get("remote_probe_ids", []),
+        "observation_mode": "limited_probe_observations" if snapshot.get("remote_probe_ids") else "orion_audit",
     }
 
 
@@ -66,6 +89,8 @@ def run_out(r: ScanRun, detail: bool = False) -> dict:
         "progress": r.progress, "summary": r.summary, "policy_versions": r.policy_versions,
         "trust_stores": (r.config_snapshot or {}).get("trust_stores") or [],
         "control_type": (r.config_snapshot or {}).get("control_type", "tls"),
+        "remote_probe_ids": (r.config_snapshot or {}).get("remote_probe_ids", []),
+        "observation_mode": "limited_probe_observations" if (r.config_snapshot or {}).get("remote_probe_ids") else "orion_audit",
         "plan": run_plan(r.config_snapshot) if r.status in ACTIVE_STATUSES else None,
         "mail_security": ({"domains": mail_cfg.get("domains", []),
                            "checks": [key for key, enabled in (mail_cfg.get("checks") or {}).items() if enabled]}
@@ -121,6 +146,22 @@ def get_run(run_id: uuid.UUID, db: DbSession = Depends(get_db), user: User = Dep
     ]
     out["service_observations"] = r.service_observations or []
     out["quic_observations"] = r.quic_observations or []
+    remote_tasks = db.execute(select(RemoteProbeTask).where(RemoteProbeTask.run_id == r.id)
+                              .order_by(RemoteProbeTask.created_at, RemoteProbeTask.id)).scalars().all()
+    remote_observations = []
+    for task in remote_tasks:
+        probe = db.get(RemoteProbe, task.probe_id)
+        zone = db.get(NetworkZone, probe.network_zone_id) if probe else None
+        events = db.execute(select(RemoteProbeEvent).where(RemoteProbeEvent.task_id == task.id)
+                            .order_by(RemoteProbeEvent.cursor)).scalars().all()
+        remote_observations.append({
+            "task_id": str(task.id), "probe_id": str(task.probe_id), "probe_name": probe.name if probe else "Unknown probe",
+            "zone_id": str(zone.id) if zone else None, "zone_name": zone.name if zone else "Unknown zone",
+            "kind": task.kind, "status": task.status, "error": task.error,
+            "targets": task.request_payload.get("targets", []), "ports": task.request_payload.get("ports", []),
+            "observations": [{"received_at": event.received_at, "payload": event.payload} for event in events],
+        })
+    out["remote_probe_observations"] = remote_observations
     return out
 
 
@@ -232,13 +273,15 @@ class ScheduleBody(BaseModel):
     domain: str | None = None
     dns_options: dict | None = None
     authorized: bool = False
+    remote_probe_ids: list[uuid.UUID] = Field(default_factory=list, max_length=8)
 
 
 def schedule_out(db: DbSession, s: ScanSchedule, history: bool = False) -> dict:
     last = db.execute(select(ScanRun).where(ScanRun.schedule_id == s.id).order_by(ScanRun.queued_at.desc()).limit(1)).scalar_one_or_none()
     config = s.task_config or {}
     public_config = ({"domain": config.get("domain"), "options": config.get("options", {})}
-                     if (s.task_type or "tls") == "dns_discovery" else None)
+                     if (s.task_type or "tls") == "dns_discovery" else
+                     {"remote_probe_ids": config.get("remote_probe_ids", [])} if config.get("remote_probe_ids") else None)
     d = {"id": str(s.id), "task_type": s.task_type or "tls", "task_config": public_config,
          "definition_id": str(s.definition_id) if s.definition_id else None, "owner_id": str(s.owner_id) if s.owner_id else None, "kind": s.kind,
          "params": s.params, "timezone": s.timezone, "active": s.active, "next_run_at": s.next_run_at, "last_run_at": s.last_run_at,
@@ -282,7 +325,18 @@ def _check_schedule(body: ScheduleBody, db: DbSession, user: User) -> tuple[date
     if body.task_type == "tls":
         if not body.definition_id:
             raise HTTPException(422, "A TLS schedule needs a scan definition")
-        get_or_404(db, ScanDefinition, body.definition_id, "Scan definition")
+        definition = get_or_404(db, ScanDefinition, body.definition_id, "Scan definition")
+        if body.remote_probe_ids:
+            if len(set(body.remote_probe_ids)) != len(body.remote_probe_ids):
+                raise HTTPException(422, "Duplicate probe identifiers are not allowed")
+            if not role_at_least(user.role, Role.OPERATOR):
+                raise HTTPException(403, "Remote probe schedules require the OPERATOR role")
+            try:
+                snapshot = build_snapshot(db, definition, 4096)
+                validate_remote_probe_selection(db, definition, snapshot, [str(value) for value in body.remote_probe_ids])
+            except PlanError as error:
+                raise HTTPException(422, str(error)) from error
+            return nxt, {"remote_probe_ids": sorted(str(value) for value in body.remote_probe_ids)}
         return nxt, None
     if body.task_type != "dns_discovery":
         raise HTTPException(422, "Unknown schedule task type")
@@ -294,7 +348,10 @@ def _check_schedule(body: ScheduleBody, db: DbSession, user: User) -> tuple[date
         raise HTTPException(422, "A domain is required for DNS discovery")
     try:
         from orion_app.api.catalog import DiscoverBody, _discovery_options
-        from orion_app.services.dns_discovery.policy import normalize_domain, load_settings
+        from orion_app.services.dns_discovery.policy import (
+            load_settings,
+            normalize_domain,
+        )
 
         domain = normalize_domain(body.domain)
         options = _discovery_options(DiscoverBody(domain=domain, authorized=True, **(body.dns_options or {})), load_settings(db))

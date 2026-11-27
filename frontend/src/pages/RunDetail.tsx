@@ -2,7 +2,7 @@ import { ArrowLeft, Download, GitCompare, Trash2, XCircle } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, downloadUrl } from "../api/client";
-import type { Comparison, Endpoint, Finding, FindingBrief, RunDetail as Detail, ServiceObservation, QuicObservation } from "../api/types";
+import type { Comparison, Endpoint, Finding, FindingBrief, RemoteProbeRunTask, RunDetail as Detail, ServiceObservation, QuicObservation } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { ConfirmButton, Empty, ErrorNote, Loading, Metric, Note, PageHeader, SeverityBadge, StatusBadge, TagList, useLoad } from "../components/common";
 import { Badge } from "../components/ui/badge";
@@ -149,6 +149,7 @@ export default function RunDetail() {
           {run.exclusions.partial_targets.length > 0 && <p className="mt-2 text-xs text-muted">{t("excl.partial", { list: run.exclusions.partial_targets.join(", ") })}</p>}</details>
       )}
       {run.error && <ErrorNote error={new Error(run.error)} />}
+      {run.observation_mode === "limited_probe_observations" && <Note tone="info" className="mb-4">{t("probe.limitedObservation" as never)}</Note>}
       {run.status === "completed" && run.control_type === "tls" && run.endpoints.length === 0 && <Note tone="info" className="mb-4">{t("run.noTls")}</Note>}
       {run.status === "partial" || run.skipped_hosts?.length ? <Note tone="warning" className="mb-4">{t("run.partial")} {run.skipped_hosts?.length ? `(${t("run.skipped")}: ${run.skipped_hosts.join(", ")})` : ""}</Note> : null}
       {s && run.control_type !== "ipsec" && (
@@ -158,6 +159,16 @@ export default function RunDetail() {
           ))}
         </div>
       )}
+      {run.remote_probe_observations?.length ? <Card id="run-remote-probes" className="mb-6"><CardHeader><CardTitle>{t("probe.resultsTitle" as never)}</CardTitle></CardHeader>
+        <p className="px-5 pb-3 text-xs text-muted">{t("probe.limitedObservation" as never)}</p>
+        <DataTable rows={run.remote_probe_observations} rowKey={(row: RemoteProbeRunTask) => row.task_id} columns={[
+          { key: "probe", header: t("probe.runFromZone" as never), values: (row) => [row.probe_name, row.zone_name], render: (row) => <span>{row.probe_name}<small className="block text-muted">{row.zone_name}</small></span> },
+          { key: "kind", header: "Engine", values: (row) => [row.kind], render: (row) => row.kind.toUpperCase() },
+          { key: "targets", header: "Targets / ports", values: (row) => [...row.targets, ...row.ports.map(String)], render: (row) => <span className="text-xs">{row.targets.join(", ")}<small className="block text-muted">{row.ports.join(", ")}</small></span> },
+          { key: "status", header: t("col.status"), values: (row) => [row.status], render: (row) => <Badge tone={row.status === "completed" ? "success" : row.status === "failed" ? "danger" : "warning"}>{row.status}</Badge> },
+          { key: "observations", header: t("probe.observations" as never), values: (row) => row.observations.map((item) => JSON.stringify(item.payload)), render: (row) => <code className="block max-w-2xl whitespace-pre-wrap break-all text-xs">{row.observations.map((item) => `${formatDate(item.received_at, locale)} · ${JSON.stringify(item.payload)}`).join("\n") || row.error || "Indeterminate"}</code> },
+        ]} />
+      </Card> : null}
       <Card className="mb-6"><CardHeader><CardTitle>{t("run.controlNavigation" as never)}</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-2">
         {enabledControls.has("tls") && <Button asChild variant="outline" size="sm"><a href="#run-tls">TLS / PKI</a></Button>}
         {enabledControls.has("ssh") && <Button asChild variant="outline" size="sm"><a href="#run-ssh">SSH</a></Button>}

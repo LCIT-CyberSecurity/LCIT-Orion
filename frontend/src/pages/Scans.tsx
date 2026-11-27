@@ -1,8 +1,8 @@
-import { FileText, Play, Plus, RotateCcw, Trash2, Pencil } from "lucide-react";
+import { FileText, Play, Plus, RotateCcw, Trash2, Pencil, Network } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, downloadUrl } from "../api/client";
-import type { Definition, Group, MailSecurityConfig, Run, SI, Target, Template, Versioned } from "../api/types";
+import type { Definition, Group, MailSecurityConfig, MapZone, RemoteProbe, Run, SI, Target, Template, Versioned } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { CheckList, ConfirmButton, Empty, ErrorNote, Note, PageHeader, StatusBadge, TagList, TagsInput, useLoad } from "../components/common";
 import { Button } from "../components/ui/button";
@@ -172,14 +172,18 @@ export default function Scans() {
     setSearchParams(next);
   };
   const [editing, setEditing] = useState<Definition | "new" | null>(null);
+  const [remoteDefinition, setRemoteDefinition] = useState<Definition | null>(null);
+  const [remoteProbeIds, setRemoteProbeIds] = useState<string[]>([]);
   const [error, setError] = useState<unknown>();
   // The same permission-filtered, persisted run feed drives both this history and the activity summary.
   const { data: runs, reload } = useLoad(() => api<Run[]>("/scan-runs", { params: { mine, limit: "500" } }), [mine], 5000);
   const visibleRuns = runs?.filter((run) => !status || run.status === status);
   const { data: defs, reload: reloadDefs } = useLoad(() => api<Definition[]>("/scan-definitions"));
+  const { data: remoteProbes } = useLoad(() => atLeast("OPERATOR") ? api<RemoteProbe[]>("/remote-probes") : Promise.resolve([]));
+  const { data: zones } = useLoad(() => atLeast("OPERATOR") ? api<MapZone[]>("/map/zones") : Promise.resolve([]));
 
-  async function launch(id: string) {
-    try { const r = await api<{ run_id: string; deduplicated: boolean }>(`/scan-definitions/${id}/run`, { method: "POST" }); navigate(`/scans/${r.run_id}`); } catch (e) { setError(e); }
+  async function launch(id: string, selectedProbeIds: string[] = []) {
+    try { const r = await api<{ run_id: string; deduplicated: boolean }>(`/scan-definitions/${id}/run`, { method: "POST", ...(selectedProbeIds.length ? { body: { remote_probe_ids: selectedProbeIds } } : {}) }); navigate(`/scans/${r.run_id}`); } catch (e) { setError(e); }
   }
   const canEdit = (d: Definition) => atLeast("OPERATOR") || d.owner_id === user?.id;
   // `?definition=<id>` (links from Schedules, Reports...) opens that definition's existing edit dialog; closing it drops the
@@ -206,7 +210,7 @@ export default function Scans() {
     ? <div className="flex flex-wrap gap-1">{checks.map((check) => <Badge key={check} tone="info">{t(`mail.${check}` as never)}</Badge>)}</div>
     : <span className="text-muted">—</span>;
   const runColumns: Column<Run>[] = [
-    { key: "name", header: t("col.name"), values: (r) => [r.name], sort: (r) => r.name, render: (r) => <><Link className="row-link" to={`/scans/${r.id}`}>{r.name}</Link>{r.schedule_id && <span className="ml-2 text-xs text-muted">⏱</span>}</> },
+    { key: "name", header: t("col.name"), values: (r) => [r.name], sort: (r) => r.name, render: (r) => <><Link className="row-link" to={`/scans/${r.id}`}>{r.name}</Link>{r.remote_probe_ids?.length ? <Badge className="ml-2" tone="info">{t("probe.runFromZone" as never)}</Badge> : null}{r.schedule_id && <span className="ml-2 text-xs text-muted">⏱</span>}</> },
     { key: "status", header: t("col.status"), values: (r) => [r.status], render: (r) => <StatusBadge status={r.status} /> },
     { key: "phase", header: t("col.phase"), sort: phaseText, render: (r) => <span className="text-muted">{phaseText(r)}</span> },
     { key: "mail", header: t("scans.mailControls"), values: (r) => runMailChecks(r).map((check) => t(`mail.${check}` as never)), render: (r) => mailBadges(runMailChecks(r)) },
@@ -231,6 +235,7 @@ export default function Scans() {
     { key: "actions", header: "", render: (d) => (
       <div className="flex justify-end gap-2">
         <Button size="sm" onClick={() => void launch(d.id)}><Play />{t("action.run")}</Button>
+        {atLeast("OPERATOR") && <Button size="sm" variant="outline" disabled={!remoteProbes?.some((p) => p.status === "active")} onClick={() => { setRemoteDefinition(d); setRemoteProbeIds([]); }}><Network />{t("probe.runFromZone" as never)}</Button>}
         {canEdit(d) && <><Button size="sm" variant="outline" aria-label={t("action.edit")} onClick={() => setEditing(d)}><Pencil /></Button>
           <ConfirmButton variant="outline" label={<Trash2 className="size-4" />} confirm={t("confirm.delete")} onConfirm={async () => { try { await api(`/scan-definitions/${d.id}`, { method: "DELETE" }); void reloadDefs(); } catch (e) { setError(e); } }} /></>}
       </div>) },
@@ -265,6 +270,26 @@ export default function Scans() {
         <TabsContent value="reports"><Reports embedded /></TabsContent>
       </Tabs>
       {editing && <DefinitionDialog initial={editing === "new" ? undefined : editing} onClose={closeDefinition} onSaved={() => { void reloadDefs(); setTab("scans"); }} />}
+      {remoteDefinition && <Dialog open onOpenChange={(open) => !open && setRemoteDefinition(null)} title={t("probe.runFromZone" as never)}>
+        <div className="space-y-4">
+          <p className="text-sm text-muted">{t("probe.limitedObservation" as never)}</p>
+          <fieldset className="space-y-2"><legend className="text-sm font-medium">{t("probe.selectProbes" as never)}</legend>
+            {(remoteProbes ?? []).filter((p) => p.status === "active").map((probe) => {
+              const controls = remoteDefinition.enabled_controls ?? [remoteDefinition.control_type];
+              const compatible = controls.every((control) => probe.capabilities.includes(control));
+              const zoneName = zones?.find((zone) => zone.id === probe.network_zone_id)?.name ?? probe.network_zone_id;
+              return <label key={probe.id} className={`flex items-start gap-2 text-sm ${compatible ? "" : "opacity-50"}`}>
+                <input type="checkbox" disabled={!compatible} checked={remoteProbeIds.includes(probe.id)} onChange={(e) => setRemoteProbeIds((ids) => e.target.checked ? [...ids, probe.id] : ids.filter((id) => id !== probe.id))} />
+                <span>{probe.name} · {zoneName}<small className="mt-1 block text-xs text-muted">{probe.capabilities.join(", ")}</small></span>
+              </label>;
+            })}
+            {!remoteProbes?.some((p) => p.status === "active") && <Note tone="warning">{t("probe.noActiveProbes" as never)}</Note>}
+          </fieldset>
+          <ErrorNote error={error} />
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setRemoteDefinition(null)}>{t("action.cancel")}</Button>
+            <Button disabled={!remoteProbeIds.length} onClick={() => { const definition = remoteDefinition; const probeIds = remoteProbeIds; setRemoteDefinition(null); void launch(definition.id, probeIds); }}>{t("action.run")}</Button></div>
+        </div>
+      </Dialog>}
     </>
   );
 }

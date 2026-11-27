@@ -33,7 +33,12 @@ from orion_app.models.scan import ACTIVE_STATUSES
 from orion_app.models.user import role_at_least
 from orion_app.services import audit, runs
 from orion_app.services.logs import configure_logging
-from orion_app.services.planner import PlanError, build_snapshot, fingerprint
+from orion_app.services.planner import (
+    PlanError,
+    build_snapshot,
+    fingerprint,
+    validate_remote_probe_selection,
+)
 from orion_app.services.schedule_calc import next_after
 
 logger = logging.getLogger("orion_app.scheduler")
@@ -84,6 +89,13 @@ def _fire(db, settings, schedule, due_at, now):
         return "error", "scan definition was deleted", None, None
     try:
         snapshot = build_snapshot(db, definition, settings.max_targets_per_scan)  # latest published versions
+        probe_ids = (schedule.task_config or {}).get("remote_probe_ids", [])
+        if probe_ids:
+            owner = db.get(User, schedule.owner_id) if schedule.owner_id else None
+            if owner is None or not owner.active or not role_at_least(owner.role, Role.OPERATOR):
+                return "error", "schedule owner is missing, inactive, or no longer permitted to use remote probes", None, None
+            validate_remote_probe_selection(db, definition, snapshot, probe_ids)
+            snapshot["remote_probe_ids"] = sorted(probe_ids)
     except PlanError as error:
         audit.record(db, "schedule.error", actor_label="scheduler", resource_type="schedule", resource_id=schedule.id,
                      outcome="failure", detail={"error": str(error)})
