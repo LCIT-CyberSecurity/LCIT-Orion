@@ -25,5 +25,8 @@ def test_active_run_exposes_a_plan_and_a_finished_one_does_not(user, operator, c
     detail = user.get(f"/api/scan-runs/{run_id}").json()
     activity = detail["progress"]["events"]
     assert any(item["event"] == "phase" and item["at"] for item in activity)
+    # This explicit-port scan emits no per-host completion callback, so don't show a fabricated 0/N count.
+    assert detail["progress"]["hosts_total"] is None
+    assert not any(item["event"] == "target_done" for item in activity)
     assert activity[-1]["event"] == "finished" and activity[-1]["status"] == final["status"]
     assert "config_snapshot" not in user.get(f"/api/scan-runs/{run_id}").json()   # the plan is not a way to read the snapshot
