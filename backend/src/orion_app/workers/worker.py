@@ -16,7 +16,14 @@ from pathlib import Path
 from orion_app.config import Settings, get_settings
 from orion_app.database import make_engine, make_session_factory
 from orion_app.models import ScanRun
-from orion_app.services import dns_discovery, greenbone, mail, retention, runs, snmp_discovery
+from orion_app.services import (
+    dns_discovery,
+    greenbone,
+    mail,
+    retention,
+    runs,
+    snmp_discovery,
+)
 from orion_app.services.logs import configure_logging, scrub_text
 from orion_app.services.notifications import notify_run_finished
 
@@ -65,12 +72,17 @@ def apply_activity_event(progress: dict, state: dict, event: dict, at: datetime 
 
 def run_subprocess(settings: Settings, session_factory, run_id) -> None:
     """Supervise one scan: heartbeat, progress events, cancellation, timeout, partial results."""
-    storage = Path(settings.storage_root)
-    export_dir = storage / "reports"
-    log_file = storage / "logs" / "scans" / f"{run_id}.log"
     with session_factory() as db:
         run = db.get(ScanRun, run_id)
         snapshot = run.config_snapshot
+    if snapshot.get("remote_probe_ids"):
+        from orion_app.services.remote_probe_runs import run_remote_probe
+
+        run_remote_probe(settings, session_factory, run_id)
+        return
+    storage = Path(settings.storage_root)
+    export_dir = storage / "reports"
+    log_file = storage / "logs" / "scans" / f"{run_id}.log"
     with tempfile.TemporaryDirectory(prefix="scan-") as tmp:
         snapshot_path, outcome_path = Path(tmp) / "snapshot.json", Path(tmp) / "outcome.json"
         snapshot_path.write_text(json.dumps({

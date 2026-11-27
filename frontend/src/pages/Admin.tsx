@@ -6,6 +6,7 @@ import { ExternalAccessSwitches, SERVICES } from "../components/ExternalAccess";
 import { AuthSettings } from "../components/AuthSettings";
 import { DirectoryUserImport } from "../components/DirectoryUserImport";
 import { TrustStoresTab } from "../components/TrustStores";
+import { RemoteProbes } from "../components/RemoteProbes";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -360,10 +361,11 @@ export default function Admin() {
     <>
       <PageHeader title={t("nav.admin")} />
       <Tabs defaultValue="users">
-        <TabsList><TabsTrigger value="users">{t("admin.users")}</TabsTrigger><TabsTrigger value="audit">{t("admin.audit")}</TabsTrigger><TabsTrigger value="settings">{t("admin.settings")}</TabsTrigger><TabsTrigger value="trust">{t("admin.trustStores")}</TabsTrigger><TabsTrigger value="auth">{t("admin.authentication")}</TabsTrigger><TabsTrigger value="directory">{t("admin.directory")}</TabsTrigger><TabsTrigger value="imports">{t("admin.imports")}</TabsTrigger><TabsTrigger value="diag">{t("admin.diagnostics")}</TabsTrigger></TabsList>
+        <TabsList><TabsTrigger value="users">{t("admin.users")}</TabsTrigger><TabsTrigger value="audit">{t("admin.audit")}</TabsTrigger><TabsTrigger value="settings">{t("admin.settings")}</TabsTrigger><TabsTrigger value="probes">{t("probe.title")}</TabsTrigger><TabsTrigger value="trust">{t("admin.trustStores")}</TabsTrigger><TabsTrigger value="auth">{t("admin.authentication")}</TabsTrigger><TabsTrigger value="directory">{t("admin.directory")}</TabsTrigger><TabsTrigger value="imports">{t("admin.imports")}</TabsTrigger><TabsTrigger value="diag">{t("admin.diagnostics")}</TabsTrigger></TabsList>
         <TabsContent value="users"><Users /></TabsContent>
         <TabsContent value="audit"><Audit /></TabsContent>
         <TabsContent value="settings"><SettingsTab /></TabsContent>
+        <TabsContent value="probes"><RemoteProbes /></TabsContent>
         <TabsContent value="trust"><TrustStoresTab /></TabsContent>
         <TabsContent value="auth"><AuthSettings /></TabsContent>
         <TabsContent value="directory"><Directory /></TabsContent>

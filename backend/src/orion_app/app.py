@@ -7,10 +7,28 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
-from orion_app.api import access, admin, auth, catalog, definitions, external, greenbone, health, network_map, policies, results, runs, sso, swagger, trust_stores, admin_auth
+from orion_app.api import (
+    access,
+    admin,
+    admin_auth,
+    auth,
+    catalog,
+    definitions,
+    external,
+    greenbone,
+    health,
+    network_map,
+    policies,
+    probes,
+    results,
+    runs,
+    sso,
+    swagger,
+    trust_stores,
+)
 from orion_app.config import Settings, get_settings
-from orion_app.mcp_server import build_mcp_asgi
 from orion_app.database import make_engine, make_session_factory
+from orion_app.mcp_server import build_mcp_asgi
 from orion_app.services.bootstrap import ensure_bootstrap
 from orion_app.services.logs import configure_logging
 from orion_app.services.rate_limit import SlidingWindowLimiter
@@ -37,10 +55,18 @@ def make_app(settings: Settings | None = None, bootstrap: bool = True) -> FastAP
         async with mcp_holder["server"].session_manager.run():
             yield
 
-    app = FastAPI(title="Orion", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app = FastAPI(
+        title="Orion",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
+    )
     app.router.redirect_slashes = False  # /mcp must answer exactly, a redirect could drop the Authorization header
     app.state.settings = settings
-    app.state.engine = make_engine(settings.database_url, settings.database_password_file)
+    app.state.engine = make_engine(
+        settings.database_url, settings.database_password_file
+    )
     app.state.session_factory = make_session_factory(app.state.engine)
     app.state.limiter = SlidingWindowLimiter()
 
@@ -54,7 +80,25 @@ def make_app(settings: Settings | None = None, bootstrap: bool = True) -> FastAP
         response.headers["X-Request-ID"] = request_id
         return response
 
-    for module in (health, auth, sso, catalog, policies, definitions, runs, admin, results, swagger, access, external, trust_stores, admin_auth, greenbone, network_map):
+    for module in (
+        health,
+        auth,
+        sso,
+        catalog,
+        policies,
+        definitions,
+        runs,
+        admin,
+        results,
+        swagger,
+        access,
+        external,
+        trust_stores,
+        admin_auth,
+        greenbone,
+        network_map,
+        probes,
+    ):
         app.include_router(module.router)
     app.include_router(trust_stores.selection)
     app.include_router(external.docs)

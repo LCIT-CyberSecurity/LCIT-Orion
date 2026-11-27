@@ -26,12 +26,15 @@ dependencies = [
   "aioquic>=1.8,<2",
 ]
 
+[project.scripts]
+orion-probe = "remote_probe.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.2", "pytest-cov>=5.0", "ruff>=0.5", "aiosmtpd>=1.4"]
 
 [tool.setuptools.packages.find]
 where = ["backend/src", "."]
-include = ["orion_app*", "tls_scan_app*", "tls_scanner*"]
+include = ["orion_app*", "tls_scan_app*", "tls_scanner*", "remote_probe*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/backend"]

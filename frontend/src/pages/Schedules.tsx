@@ -2,7 +2,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { Definition, Group, Schedule, Target } from "../api/types";
+import type { Definition, Group, MapZone, RemoteProbe, Schedule, Target } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { ConfirmButton, Empty, ErrorNote, PageHeader, StatusBadge, useLoad } from "../components/common";
 import { Badge } from "../components/ui/badge";
@@ -16,11 +16,12 @@ import { formatDate, formatDuration } from "../lib/utils";
 
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
-function ScheduleDialog({ defs, allowDns, schedule, onClose, onSaved }: { defs: Definition[]; allowDns: boolean; schedule?: Schedule; onClose: () => void; onSaved: () => void }) {
+function ScheduleDialog({ defs, probes, zones, allowDns, schedule, onClose, onSaved }: { defs: Definition[]; probes: RemoteProbe[]; zones: MapZone[]; allowDns: boolean; schedule?: Schedule; onClose: () => void; onSaved: () => void }) {
   const { t } = useI18n();
   const options = schedule?.task_config?.options ?? {};
   const reverseAddresses = options.reverse_addresses ?? options.reverse ?? [];
   const [definition, setDefinition] = useState(schedule?.definition_id ?? defs[0]?.id ?? "");
+  const [remoteProbeIds, setRemoteProbeIds] = useState(schedule?.task_config?.remote_probe_ids ?? []);
   const [taskType, setTaskType] = useState<"tls" | "dns_discovery">(schedule?.task_type ?? "tls");
   const [domain, setDomain] = useState(schedule?.task_config?.domain ?? "");
   const [authorized, setAuthorized] = useState(false);
@@ -50,7 +51,7 @@ function ScheduleDialog({ defs, allowDns, schedule, onClose, onSaved }: { defs: 
     timeout_seconds: timeout, concurrency, max_duration_seconds: duration };
   async function save() {
     const body = taskType === "tls"
-      ? { task_type: "tls", definition_id: definition, kind, params, timezone: schedule?.timezone ?? TZ, active }
+      ? { task_type: "tls", definition_id: definition, remote_probe_ids: remoteProbeIds, kind, params, timezone: schedule?.timezone ?? TZ, active }
       : { task_type: "dns_discovery", domain, authorized, dns_options: dnsOptions, kind, params, timezone: schedule?.timezone ?? TZ, active };
     try { await api(schedule ? `/schedules/${schedule.id}` : "/schedules", { method: schedule ? "PUT" : "POST", body }); onSaved(); onClose(); } catch (e) { setError(e); }
   }
@@ -58,7 +59,21 @@ function ScheduleDialog({ defs, allowDns, schedule, onClose, onSaved }: { defs: 
     <Dialog open onOpenChange={(o) => !o && onClose()} title={schedule ? t("sched.edit") : t("sched.new")}>
       <div className="space-y-4">
         {allowDns ? <Field label={t("sched.taskType")}><Select value={taskType} onChange={(e) => setTaskType(e.target.value as "tls" | "dns_discovery")}><option value="tls">{t("sched.task.tls")}</option><option value="dns_discovery">{t("sched.task.dns")}</option></Select></Field> : <p className="text-sm font-medium">{t("sched.task.tls")}</p>}
-        {taskType === "tls" ? <Field label={t("sched.definition")}><Select value={definition} onChange={(e) => setDefinition(e.target.value)}>{defs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</Select></Field> : <>
+        {taskType === "tls" ? <>
+          <Field label={t("sched.definition")}><Select value={definition} onChange={(e) => setDefinition(e.target.value)}>{defs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</Select></Field>
+          {allowDns && <fieldset className="space-y-2 rounded-sm border border-hairline p-3"><legend className="px-1 text-sm font-medium">{t("probe.selectProbes" as never)}</legend>
+            <p className="text-xs text-muted">{t("probe.limitedObservation" as never)}</p>
+            {probes.filter((probe) => probe.status === "active").map((probe) => {
+              const selectedDefinition = defs.find((item) => item.id === definition);
+              const controls = selectedDefinition?.enabled_controls ?? [selectedDefinition?.control_type ?? "tls"];
+              const compatible = controls.every((control) => probe.capabilities.includes(control));
+              return <label key={probe.id} className={`flex items-center gap-2 text-sm ${compatible ? "" : "opacity-50"}`}>
+                <input type="checkbox" disabled={!compatible} checked={remoteProbeIds.includes(probe.id)} onChange={(e) => setRemoteProbeIds((ids) => e.target.checked ? [...ids, probe.id] : ids.filter((id) => id !== probe.id))} />
+                {probe.name} · {zones.find((zone) => zone.id === probe.network_zone_id)?.name ?? probe.network_zone_id}
+              </label>;
+            })}
+          </fieldset>}
+        </> : <>
           <Field label={t("sched.domain")}><Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="example.org" /></Field>
           <Field label={t("sched.mode")}><Select value={mode} onChange={(e) => { setMode(e.target.value as "fast" | "advanced"); if (e.target.value === "fast") setMethods((current) => current.filter((m) => m !== "reverse")); }}><option value="fast">{t("dd.mode.fast")}</option><option value="advanced">{t("dd.mode.advanced")}</option></Select></Field>
           <fieldset className="space-y-2"><legend className="text-sm font-medium">{t("dd.methods")}</legend>{["dns", "axfr", "dictionary", "ct", ...(mode === "advanced" ? ["reverse"] : [])].map((m) => <label key={m} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={methods.includes(m)} onChange={() => toggleMethod(m)} />{t(`dd.m.${m}` as never)}</label>)}</fieldset>
@@ -94,6 +109,8 @@ export default function Schedules() {
   const { user, atLeast } = useAuth();
   const { data, reload, error } = useLoad(() => api<Schedule[]>("/schedules"), [], 10000);
   const { data: defs } = useLoad(() => api<Definition[]>("/scan-definitions"));
+  const { data: probes } = useLoad(() => atLeast("OPERATOR") ? api<RemoteProbe[]>("/remote-probes") : Promise.resolve([]));
+  const { data: zones } = useLoad(() => atLeast("OPERATOR") ? api<MapZone[]>("/map/zones") : Promise.resolve([]));
   const { data: targets } = useLoad(() => api<Target[]>("/targets"));
   const { data: groups } = useLoad(() => api<Group[]>("/target-groups"));
   const [open, setOpen] = useState(false);
@@ -110,8 +127,10 @@ export default function Schedules() {
       ...(definition.target_ids ?? []).map((id) => ({ key: `t-${id}`, to: `/targets?target=${id}`, label: targets?.find((x) => x.id === id)?.name || targets?.find((x) => x.id === id)?.value })),
       ...(definition.group_ids ?? []).map((id) => ({ key: `g-${id}`, to: `/targets?group=${id}`, label: groups?.find((g) => g.id === id)?.name && `${t("sched.group")} ${groups?.find((g) => g.id === id)?.name}` })),
     ].filter((ref) => ref.label);
+    const selectedProbes = (s.task_config?.remote_probe_ids ?? []).map((id) => probes?.find((probe) => probe.id === id)?.name ?? id.slice(0, 8));
     return <>
       <Link className="ref-link" to={`/scans?tab=scans&definition=${definition.id}`}>{definition.name}</Link>
+      {selectedProbes.length > 0 && <div className="text-xs font-normal text-muted">{t("probe.runFromZone" as never)}: {selectedProbes.join(", ")}</div>}
       {refs.length > 0 && <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-normal" aria-label={t("def.targets")}>
         {refs.slice(0, 5).map((ref) => <Link key={ref.key} className="ref-link" to={ref.to}>{ref.label}</Link>)}
         {refs.length > 5 && <Link className="ref-link" to={`/scans?tab=scans&definition=${definition.id}`}>{t("sched.moreTargets", { n: refs.length - 5 })}</Link>}
@@ -135,8 +154,8 @@ export default function Schedules() {
               </div></Td></tr>
           ))}</tbody></Table>
       ) : <Empty>{t("sched.none")}</Empty>}</Card>
-      {open && defs && <ScheduleDialog defs={defs} allowDns={atLeast("OPERATOR")} onClose={() => setOpen(false)} onSaved={() => void reload()} />}
-      {editing && defs && <ScheduleDialog defs={defs} allowDns={atLeast("OPERATOR")} schedule={editing} onClose={() => setEditing(null)} onSaved={() => void reload()} />}
+      {open && defs && <ScheduleDialog defs={defs} probes={probes ?? []} zones={zones ?? []} allowDns={atLeast("OPERATOR")} onClose={() => setOpen(false)} onSaved={() => void reload()} />}
+      {editing && defs && <ScheduleDialog defs={defs} probes={probes ?? []} zones={zones ?? []} allowDns={atLeast("OPERATOR")} schedule={editing} onClose={() => setEditing(null)} onSaved={() => void reload()} />}
       {detail && (
         <Dialog open onOpenChange={(o) => !o && setDetail(null)} title={t("sched.history")} wide>
           <Table><thead><tr><Th>{t("sched.dueAt")}</Th><Th>{t("sched.outcome")}</Th><Th>{t("sched.reason")}</Th><Th /></tr></thead>

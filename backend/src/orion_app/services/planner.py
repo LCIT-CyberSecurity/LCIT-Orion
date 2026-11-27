@@ -10,22 +10,20 @@ import hashlib
 import ipaddress
 import json
 import unicodedata
+import uuid
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
-from tls_scanner.config import build_job_from_sections
-from tls_scanner.constants import ALLOWED_EXPORT_FORMATS
-from tls_scanner.exclusions import Exclusions
-from tls_scanner.exclusions import parse_entries as parse_exclusions
-from tls_scanner.models import ConfigError, EncryptionPolicy
 
 from orion_app.models import (
     DefinitionGroup,
     DefinitionPolicy,
     DefinitionTarget,
     EndpointExposure,
+    NetworkZoneTarget,
     PolicyVersion,
+    RemoteProbe,
     ReportTemplate,
     ScanDefinition,
     ScanProfile,
@@ -37,6 +35,11 @@ from orion_app.models import (
 from orion_app.models.policy import PUBLISHED
 from orion_app.services.targets import address_count
 from orion_app.services.trust_stores import TrustStoreError, resolve_for_snapshot
+from tls_scanner.config import build_job_from_sections
+from tls_scanner.constants import ALLOWED_EXPORT_FORMATS
+from tls_scanner.exclusions import Exclusions
+from tls_scanner.exclusions import parse_entries as parse_exclusions
+from tls_scanner.models import ConfigError, EncryptionPolicy
 
 DEFAULT_FORMATS = ["html", "md", "csv", "cbom"]
 POLICY_KEYS = ("allowed_versions", "allowed_cipher_algorithms", "allowed_signature_hashes", "minimum_rsa_bits")
@@ -343,6 +346,66 @@ def build_snapshot(db: DbSession, definition: ScanDefinition, max_addresses: int
     }
 
 
+def validate_remote_probe_selection(db: DbSession, definition: ScanDefinition, snapshot: dict[str, Any],
+                                    probe_ids: list[str]) -> None:
+    """Fail closed unless every selected active probe can observe assigned targets and controls."""
+    try:
+        ids = [uuid.UUID(value) for value in probe_ids]
+    except (ValueError, TypeError, AttributeError):
+        raise PlanError("remote probe identifiers are invalid") from None
+    if not ids or len(ids) > 8 or len(set(ids)) != len(ids):
+        raise PlanError("select between one and eight distinct remote probes")
+    probes = db.execute(select(RemoteProbe).where(RemoteProbe.id.in_(ids))).scalars().all()
+    if len(probes) != len(ids) or any(probe.status != "active" for probe in probes):
+        raise PlanError("every selected probe must be active")
+    controls = snapshot.get("enabled_controls") or [snapshot.get("control_type", "tls")]
+    targets = resolve_targets(db, definition)
+    target_ids = {target.id for target in targets}
+    assignments = set(db.execute(select(NetworkZoneTarget.zone_id, NetworkZoneTarget.target_id)
+                                 .where(NetworkZoneTarget.target_id.in_(target_ids))).all())
+    probe_zones = set()
+    for probe in probes:
+        if not set(controls).issubset(set(probe.capabilities or [])):
+            raise PlanError("a selected probe does not support every enabled scan control")
+        if not any((probe.network_zone_id, target_id) in assignments for target_id in target_ids):
+            raise PlanError("a selected probe zone has no explicitly assigned scan targets")
+        probe_zones.add(probe.network_zone_id)
+    used_values = {value for scan_pass in snapshot.get("passes", []) for value in scan_pass.get("targets", [])}
+    by_value = {target.value: target for target in targets}
+    if any(value not in by_value or by_value[value].kind == "cidr" for value in used_values):
+        raise PlanError("remote probe runs currently require explicitly assigned IP or FQDN targets")
+    used_target_ids = {by_value[value].id for value in used_values}
+    assigned_values = {target_id for zone_id, target_id in assignments if zone_id in probe_zones}
+    if not used_target_ids.issubset(assigned_values):
+        raise PlanError("selected probe zones must collectively cover every included scan target")
+    if "tls" in controls:
+        for scan_pass in snapshot.get("passes", []):
+            spec = str(scan_pass.get("ports") or "")
+            if spec in {"", "fast", "all"}:
+                raise PlanError("remote probes require explicit target ports; fast/all discovery is unsupported")
+            count = 0
+            for part in spec.split(","):
+                low_high = part.split("-", 1)
+                if any(not number.isdecimal() for number in low_high):
+                    raise PlanError("remote target port range is invalid")
+                low, high = int(low_high[0]), int(low_high[-1])
+                if not 1 <= low <= high <= 65535:
+                    raise PlanError("remote target port range is invalid")
+                count += high - low + 1
+            if count > 64 or count * len(scan_pass.get("targets", [])) > 32:
+                raise PlanError("remote probe tasks are limited to 32 target/port checks")
+    if "ssh" in controls:
+        ssh_ports = ((snapshot.get("ssh") or {}).get("settings") or {}).get("ports", [22])
+        if not isinstance(ssh_ports, list) or not ssh_ports or len(ssh_ports) > 32:
+            raise PlanError("remote SSH requires a valid explicit port list")
+        if any(isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535 for port in ssh_ports):
+            raise PlanError("remote SSH requires a valid explicit port list")
+        if any(len(scan_pass.get("targets", [])) * len(ssh_ports) > 32 for scan_pass in snapshot.get("passes", [])):
+            raise PlanError("remote probe tasks are limited to 32 target/port checks")
+    if "ipsec" in controls and any(len(scan_pass.get("targets", [])) * 2 > 128 for scan_pass in snapshot.get("passes", [])):
+        raise PlanError("remote IPsec tasks are limited to 128 target/port checks")
+
+
 def fingerprint(snapshot: dict[str, Any]) -> str:
     """Hash of everything that influences observations (not the output formats nor worker count)."""
     scan = {k: v for k, v in snapshot.get("scan", {}).items() if k != "workers"}
@@ -359,6 +422,7 @@ def fingerprint(snapshot: dict[str, Any]) -> str:
         "ipsec": snapshot.get("ipsec"),
         "ssh": snapshot.get("ssh"),
         "exposure_snapshot": snapshot.get("exposure_snapshot", []),
+        "remote_probe_ids": sorted(snapshot.get("remote_probe_ids", [])),
     }
     mail_security = snapshot.get("mail_security") or {}
     if mail_security.get("enabled"):
