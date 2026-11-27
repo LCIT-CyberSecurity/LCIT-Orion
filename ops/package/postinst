@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+if ! getent passwd orion-probe >/dev/null; then
+    adduser --system --group --no-create-home --home /nonexistent \
+        --shell /usr/sbin/nologin orion-probe
+fi
+install -d -o orion-probe -g orion-probe -m 0700 /var/lib/orion-probe
+install -d -o root -g orion-probe -m 0750 /etc/orion-probe
+chown root:orion-probe /etc/orion-probe/config.json.example
+chmod 0640 /etc/orion-probe/config.json.example
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload
+    if [ -f /etc/orion-probe/config.json ]; then
+        systemctl enable orion-probe.service
+        systemctl restart orion-probe.service
+    fi
+fi
+
+exit 0

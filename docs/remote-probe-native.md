@@ -2,7 +2,7 @@
 
 La sonde expose une API HTTPS appelée par Orion central. Elle n'établit aucune connexion de contrôle vers le central. Les connexions sortantes de mesure restent limitées aux cibles et ports autorisés, validés localement dans le CIDR affecté à la sonde.
 
-> **État du prototype :** le paquet Debian signé n'est pas encore livré. Les étapes ci-dessous décrivent la configuration et l'unité systemd prévues; l'installation et le démarrage natifs sur un hôte vierge restent à valider avec le paquet.
+> **État du lot :** un constructeur `.deb` est disponible sous `ops/package/` et un paquet de laboratoire a été construit/signé. Cette signature n'est pas une signature de publication officielle. L'installation et le démarrage réels sur un hôte Debian 13 vierge restent `NOT RUN`.
 
 ## Prérequis
 
@@ -11,6 +11,28 @@ La sonde expose une API HTTPS appelée par Orion central. Elle n'établit aucune
 - Installer uniquement les moteurs autorisés : `nmap`, `ssh-audit` et/ou `ike-scan`. La sonde n'annonce que les capacités dont les exécutables sont présents; le module TLS nécessite également le paquet Python `python-nmap` livré avec Orion.
 - Un certificat serveur HTTPS et sa clé privée provisionnés hors bande. Le certificat et la clé doivent appartenir à `orion-probe`; mode `0600` pour la clé.
 - Règle de pare-feu autorisant l'adresse egress réelle d'Orion central vers le port d'écoute de cette sonde. L'authentification API et la vérification TLS restent obligatoires en complément.
+
+## Construire le paquet Debian
+
+Sur une machine de construction Debian compatible, `ops/package/build-probe-deb.sh`
+assemble le binaire Python, les moteurs Orion réutilisés, l'unité systemd et les
+dépendances déclarées. Nmap, `ssh-audit` et `ike-scan` sont des paquets Debian
+requis par cette version du paquet.
+
+```sh
+ops/package/build-probe-deb.sh 0.1.0 /tmp/orion-probe-packages
+```
+
+Pour un artefact de laboratoire uniquement, fournir l'identifiant d'une clé
+GPG locale au constructeur; il crée une signature détachée `.asc`. Ne jamais
+présenter cette signature comme une signature officielle. Les étapes et la
+procédure d'installation figurent dans [`ops/package/README.md`](../ops/package/README.md).
+
+Le paquet installe l'exemple dans `/etc/orion-probe/config.json.example` et
+crée l'utilisateur système non privilégié. Il ne démarre pas le service tant
+qu'une configuration réelle n'existe pas. La configuration doit contenir un
+code de jumelage temporaire haché, expirant et transmis par canal approuvé,
+ainsi qu'un certificat et une clé privée protégés.
 
 ## Configuration
 
@@ -58,7 +80,7 @@ Le service s'exécute sans privilèges, avec `/var/lib/orion-probe` comme seul e
 - IPsec réutilise `services.ipsec.probe_targets` avec deux versions IKE, sans retry et avec parallélisme borné.
 - DNS et les capacités avancées ne sont pas annoncés par ce prototype.
 - La liste des capacités reflète les exécutables disponibles au démarrage. Après installation/retrait d'un moteur, redémarrer le service.
-- Ce livrable ne fournit pas encore de paquet Debian signé, de procédure d'upgrade/rollback, de règle pare-feu automatisée ni de recette multi-zones. Le POC devra aussi mesurer CPU, mémoire, stockage et latence.
+- La signature testée est une signature de laboratoire; aucune clé de publication officielle n'est fournie. La procédure d'upgrade/rollback, la règle pare-feu automatisée et la recette multi-zones restent à faire. L'installation et le démarrage sous Debian 13 restent `NOT RUN`. Le POC devra aussi mesurer CPU, mémoire, stockage et latence.
 
 ## Lancement et suivi des tâches dans Orion
 

@@ -1,0 +1,12 @@
+{
+  "listen_address": "192.0.2.40",
+  "port": 9443,
+  "certificate_file": "/etc/orion-probe/tls.crt",
+  "private_key_file": "/etc/orion-probe/tls.key",
+  "state_dir": "/var/lib/orion-probe",
+  "allowed_networks": ["10.20.0.0/16"],
+  "token_hash": "",
+  "pairing_code_hash": "REPLACE_WITH_64_LOWERCASE_HEX_CHARACTERS",
+  "pairing_expires_at": 1795800000,
+  "workers": 2
+}

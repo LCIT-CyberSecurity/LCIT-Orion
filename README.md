@@ -53,7 +53,7 @@ Updates, backups and restore: [installation](docs/admin/install.md), [operations
 - Users: [user guide](docs/user/guide.md) · [API results](docs/user/api-results.md)
 - Administrators: [installation](docs/admin/install.md) · [operations](docs/admin/operations.md) ·
   [authentication](docs/admin/authentication.md) · [exposure risk operations](docs/admin/exposure-risk-operations.md)
-- Architecture: [overview](docs/architecture/overview.md) · [data model](docs/architecture/data-model.md) · [secrets](docs/architecture/secrets.md) · [remote probe prototype and limits](docs/remote-probe-native.md)
+- Architecture: [overview](docs/architecture/overview.md) · [data model](docs/architecture/data-model.md) · [secrets](docs/architecture/secrets.md) · [remote probe installation and limits](docs/remote-probe-native.md)
 - Development: [contributing](docs/dev/contributing.md) · [tests](docs/dev/testing.md) · [CrashTest](docs/dev/crashtest.md)
 - [Limitations and V2](docs/limitations.md)
 

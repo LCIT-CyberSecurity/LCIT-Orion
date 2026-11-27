@@ -56,7 +56,7 @@ class ProbeEngineExecutor:
                 if cancel.is_set():
                     return {"observations": observations, "cancelled": True}
                 args = (
-                    "-sV --version-light --script ssl-cert,ssl-enum-ciphers "
+                    "-Pn -sV --version-light --script ssl-cert,ssl-enum-ciphers "
                     f"--host-timeout {timeout}s --script-timeout {timeout}s "
                     "--max-retries 1"
                 )
@@ -112,17 +112,28 @@ class ProbeEngineExecutor:
             raise RuntimeError("ssh-audit is not installed")
         from orion_app.services.ssh_audit import audit_target
 
-        targets = self._pinned_targets(task)
-        if len(targets) * len(task["ports"]) > 32:
+        destinations = [
+            (name, address)
+            for name in task["targets"]
+            for address in task["resolved_targets"][name]
+        ]
+        if len(destinations) * len(task["ports"]) > 32:
             raise ValueError("SSH task exceeds the probe work limit")
         observations = []
-        for target in targets:
+        for name, target in destinations:
             for port in task["ports"]:
                 if cancel.is_set():
                     return {"observations": observations, "cancelled": True}
                 observation = audit_target(
                     target, port, timeout_seconds=min(task["timeout_seconds"], 5)
                 )
+                observation = {
+                    **observation,
+                    "target": name,
+                    "resolved_target": target,
+                    "port": port,
+                    "protocol": "ssh",
+                }
                 observations.append(observation)
         return {"observations": observations, "cancelled": cancel.is_set()}
 

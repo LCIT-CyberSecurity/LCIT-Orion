@@ -1,0 +1,11 @@
+Package: orion-probe
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: all
+Depends: adduser, ike-scan, nmap, python3, python3-cryptography, python3-nmap, ssh-audit, systemd
+Maintainer: LCIT CyberSecurity
+Description: Orion remote observation probe
+ A minimal HTTPS agent for Orion-initiated network observations.
+ The probe reuses Orion's TLS, SSH and IPsec scan engines and stores pending
+ results locally until the central Orion server acknowledges durable storage.

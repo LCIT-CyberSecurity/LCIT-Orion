@@ -37,9 +37,14 @@ def test_ssh_engine_scans_only_validated_pinned_addresses(monkeypatch):
 
     assert seen == [("192.0.2.10", 22, 5), ("192.0.2.10", 2222, 5)]
     assert [item["target"] for item in result["observations"]] == [
+        "service.example",
+        "service.example",
+    ]
+    assert [item["resolved_target"] for item in result["observations"]] == [
         "192.0.2.10",
         "192.0.2.10",
     ]
+    assert [item["protocol"] for item in result["observations"]] == ["ssh", "ssh"]
 
 
 def test_ssh_engine_stops_before_next_target_when_cancelled(monkeypatch):
@@ -129,6 +134,7 @@ def test_tls_engine_pins_destination_sets_sni_and_keeps_silent_unknown(monkeypat
     assert calls[0][0:2] == ("192.0.2.30", "443")
     assert "tls.servername=service.example" in calls[0][2]
     assert "--host-timeout 7s" in calls[0][2]
+    assert "-Pn" in calls[0][2]
     assert result["observations"][0]["resolved_target"] == "192.0.2.30"
     assert result["observations"][0]["status"] == "indeterminate"
 
