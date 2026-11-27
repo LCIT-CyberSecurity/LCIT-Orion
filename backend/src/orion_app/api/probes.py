@@ -116,7 +116,9 @@ def _client(
         raise HTTPException(503, "Probe identity configuration is invalid") from None
 
 
-def _validate_result_page(page: object, acknowledged_cursor: int) -> tuple[list[dict], int]:
+def _validate_result_page(
+    page: object, acknowledged_cursor: int
+) -> tuple[list[dict], int]:
     """Reject gaps before advancing the central cursor or acknowledging probe data."""
     if not isinstance(page, dict):
         raise HTTPException(502, "Probe returned an invalid result page")
@@ -143,6 +145,17 @@ def _validate_result_page(page: object, acknowledged_cursor: int) -> tuple[list[
     if next_cursor != expected_cursor:
         raise HTTPException(502, "Probe returned an invalid result cursor")
     return events, next_cursor
+
+
+def _validate_probe_task_workload(
+    kind: str, target_count: int, port_count: int
+) -> None:
+    """Reject tasks that would exceed the selected probe engine's bounded work budget."""
+    max_target_port_pairs = 128 if kind == "ipsec" else 32
+    if kind == "dns":
+        return
+    if target_count * port_count > max_target_port_pairs:
+        raise HTTPException(422, "Task exceeds the probe engine work limit")
 
 
 @router.get("")
@@ -374,6 +387,9 @@ def dispatch_task(
         payload = validate_task(payload)
     except TaskValidationError as error:
         raise HTTPException(422, str(error)) from None
+    _validate_probe_task_workload(
+        body.kind, len(payload["targets"]), len(payload["ports"])
+    )
     task = RemoteProbeTask(
         id=task_id,
         probe_id=probe.id,
