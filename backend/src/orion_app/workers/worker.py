@@ -36,18 +36,23 @@ def apply_activity_event(progress: dict, state: dict, event: dict, at: datetime 
             progress["events"].append({"event": "phase", "phase": phase,
                                       "at": (at or datetime.now(UTC)).isoformat()})
         hosts = event.get("hosts")
-        if isinstance(hosts, list):
-            if phase_changed or hosts != state.get("hosts"):
-                progress["hosts_total"] = len(hosts)
-                progress["hosts_done"] = 0
-                state["hosts"] = hosts
+        if isinstance(hosts, list) and (phase_changed or hosts != state.get("hosts")):
+            state["hosts_total"] = len(hosts)
+            state["hosts"] = hosts
+            progress["hosts_total"] = None
+            progress["hosts_done"] = 0
+        elif phase_changed:
+            state["hosts_total"] = None
+            state["hosts"] = None
     elif event_name == "host_done":
         done, total = event.get("hosts_done"), event.get("hosts_total")
         if isinstance(done, int) and not isinstance(done, bool) and done >= 0:
             progress["hosts_done"] = done
         else:
             # TLS callbacks report one completed host without aggregate counters;
-            # use the real phase total and count each callback as it arrives.
+            # expose a total only when the phase supplied a real target list.
+            if state.get("hosts_total") is not None:
+                progress["hosts_total"] = state["hosts_total"]
             progress["hosts_done"] += 1
         if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
             progress["hosts_total"] = total
