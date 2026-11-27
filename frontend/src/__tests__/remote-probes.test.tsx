@@ -24,7 +24,11 @@ afterEach(cleanup);
 beforeEach(() => { calls.length = 0; responses = {}; vi.spyOn(window, "confirm").mockReturnValue(true); });
 const wrap = () => render(<I18nProvider initial="en"><RemoteProbes /></I18nProvider>);
 
-const zone = { id: "zone-1", name: "DMZ", cidr: "192.0.2.0/24", description: "", zone_type: "dmz", parent_zone_id: null, si_ids: [], target_ids: [], primary_target_ids: [] };
+const zone = { id: "zone-1", name: "DMZ", cidr: "192.0.2.0/24", description: "", zone_type: "dmz", parent_zone_id: null, si_ids: [], target_ids: ["target-1"], primary_target_ids: [] };
+const targets = [
+  { id: "target-1", name: "Authorized host", value: "192.0.2.10", kind: "host", ports: "443", description: "", owner_id: null, tags: [], si_ids: [] },
+  { id: "target-2", name: "Other zone", value: "198.51.100.10", kind: "host", ports: "443", description: "", owner_id: null, tags: [], si_ids: [] },
+];
 const pairing = { id: "probe-1", name: "dmz-probe", address: "192.0.2.40", api_port: 9443, network_zone_id: zone.id, certificate_sha256: "ab".repeat(32), status: "pairing" as const, capabilities: [], last_seen_at: null };
 const active = { ...pairing, status: "active" as const, capabilities: ["tls", "ssh"], last_seen_at: "2026-11-27T08:00:00Z" };
 
@@ -32,6 +36,7 @@ describe("Administration → remote probes", () => {
   it("registers a probe with its pinned certificate and observation zone", async () => {
     responses["GET /remote-probes"] = [];
     responses["GET /map/zones"] = [zone];
+    responses["GET /targets"] = targets;
     responses["POST /remote-probes"] = pairing;
     wrap();
     fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "dmz-probe" } });
@@ -52,6 +57,7 @@ describe("Administration → remote probes", () => {
   it("pairs with a one-time code, then allows health and result synchronization", async () => {
     responses["GET /remote-probes"] = [pairing];
     responses["GET /map/zones"] = [zone];
+    responses["GET /targets"] = targets;
     responses[`POST /remote-probes/${pairing.id}/pair`] = { ...active, encrypted_token: undefined };
     responses[`POST /remote-probes/${pairing.id}/health`] = { probe: active, health: { status: "ok" } };
     responses[`POST /remote-probes/${pairing.id}/sync`] = { events_received: 1, events_imported: 1, acknowledged_cursor: 1, acknowledgement_pending: false };
@@ -72,5 +78,31 @@ describe("Administration → remote probes", () => {
     await waitFor(() => expect(calls.some((call) => call.path.endsWith("/health"))).toBe(true));
     fireEvent.click(within(activeRow).getByRole("button", { name: "Sync" }));
     await waitFor(() => expect(calls.some((call) => call.path.endsWith("/sync"))).toBe(true));
+  });
+
+  it("dispatches only assigned targets and displays the task status", async () => {
+    responses["GET /remote-probes"] = [active];
+    responses["GET /map/zones"] = [zone];
+    responses["GET /targets"] = targets;
+    const task = {
+      id: "task-1", kind: "tls", status: "queued", error: "", target_ids: ["target-1"],
+      targets: ["192.0.2.10"], ports: [443], created_at: "2026-11-27T08:00:00Z", finished_at: null,
+    };
+    responses[`GET /remote-probes/${active.id}/tasks`] = [task];
+    responses[`POST /remote-probes/${active.id}/tasks`] = { task_id: task.id, status: "queued" };
+    wrap();
+    const row = (await screen.findByText("dmz-probe")).closest("tr")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Tasks" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Authorized host/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Other zone/)).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByLabelText(/Authorized host/));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Run on this probe" }));
+    await screen.findByText("Task submitted. Refresh tasks after synchronization to see its status.");
+    const request = calls.find((call) => call.method === "POST" && call.path.endsWith("/tasks"));
+    expect(request?.body).toEqual({
+      kind: "tls", target_ids: ["target-1"], ports: [443], timeout_seconds: 5, workers: 4, policy: {},
+    });
+    expect(within(dialog).getByText("queued")).toBeInTheDocument();
   });
 });

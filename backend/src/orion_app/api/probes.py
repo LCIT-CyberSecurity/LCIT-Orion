@@ -151,6 +151,33 @@ def list_probes(db: DbDependency, _user: ReaderDependency) -> list[dict]:
     return [_probe_out(probe) for probe in probes]
 
 
+@router.get("/{probe_id}/tasks")
+def list_probe_tasks(
+    probe_id: uuid.UUID, db: DbDependency, _user: ReaderDependency
+) -> list[dict]:
+    probe = get_or_404(db, RemoteProbe, probe_id, "Probe")
+    tasks = db.execute(
+        select(RemoteProbeTask)
+        .where(RemoteProbeTask.probe_id == probe.id)
+        .order_by(RemoteProbeTask.created_at.desc())
+        .limit(100)
+    ).scalars()
+    return [
+        {
+            "id": str(task.id),
+            "kind": task.kind,
+            "status": task.status,
+            "error": task.error,
+            "target_ids": task.request_payload.get("target_ids", []),
+            "targets": task.request_payload.get("targets", []),
+            "ports": task.request_payload.get("ports", []),
+            "created_at": task.created_at,
+            "finished_at": task.finished_at,
+        }
+        for task in tasks
+    ]
+
+
 @router.post("", status_code=201)
 def create_probe(
     body: ProbeCreateBody,

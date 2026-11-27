@@ -80,6 +80,9 @@ def test_probe_registry_requires_admin_and_does_not_expose_credentials(
     assert any(
         item["id"] == probe["id"] for item in auditor.get("/api/remote-probes").json()
     )
+    task_list = auditor.get(f"/api/remote-probes/{probe['id']}/tasks")
+    assert task_list.status_code == 200, task_list.text
+    assert task_list.json() == []
     assert operator.post(f"/api/remote-probes/{probe['id']}/health").status_code == 409
     assert operator.post(f"/api/remote-probes/{probe['id']}/revoke").status_code == 403
     revoked = admin.post(f"/api/remote-probes/{probe['id']}/revoke")
