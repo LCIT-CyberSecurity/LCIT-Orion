@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends nmap ike-scan s
     && useradd --create-home --uid 10001 orion && mkdir -p /var/lib/orion && chown orion /var/lib/orion
 WORKDIR /app
 COPY pyproject.toml requirements.txt ./
+COPY remote_probe ./remote_probe
 COPY tls_scanner ./tls_scanner
 COPY backend ./backend
 ARG WITH_DEV=false
