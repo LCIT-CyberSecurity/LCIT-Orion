@@ -109,4 +109,25 @@ describe("Administration → remote probes", () => {
     await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.path.endsWith("/sync"))).toBe(true));
     expect(calls.filter((call) => call.path === `/remote-probes/${active.id}/tasks`).length).toBeGreaterThanOrEqual(2);
   });
+
+  it("limits task selection to each engine's bounded target-port workload", async () => {
+    const assigned = Array.from({ length: 17 }, (_, index) => ({
+      id: `target-${index + 1}`, name: `Host ${index + 1}`, value: `192.0.2.${index + 10}`,
+      kind: "host", ports: "443", description: "", owner_id: null, tags: [], si_ids: [],
+    }));
+    responses["GET /remote-probes"] = [active];
+    responses["GET /map/zones"] = [{ ...zone, target_ids: assigned.map((target) => target.id) }];
+    responses["GET /targets"] = assigned;
+    responses[`GET /remote-probes/${active.id}/tasks`] = [];
+    wrap();
+    const row = (await screen.findByText("dmz-probe")).closest("tr")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Tasks" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Ports"), { target: { value: "443,8443" } });
+    const checkboxes = within(dialog).getAllByRole("checkbox");
+    for (const checkbox of checkboxes.slice(0, 16)) fireEvent.click(checkbox);
+    expect(checkboxes[16]).toBeDisabled();
+    expect(within(dialog).getByText("Maximum 16 targets for this task, based on the engine work limit.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Run on this probe" })).toBeEnabled();
+  });
 });

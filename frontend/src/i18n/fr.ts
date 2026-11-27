@@ -1326,7 +1326,7 @@ export const fr: Messages = {
   "probe.noAssignedTargets": "Aucune cible n’est affectée à cette zone.",
   "probe.dispatch": "Lancer sur cette sonde",
   "probe.taskQueued": "Tâche envoyée. Actualisez les tâches après synchronisation pour voir son état.",
-  "probe.targetLimit": "Maximum de 256 cibles par tâche.",
+  "probe.targetLimit": "Maximum de {max} cibles pour cette tâche, selon les limites du moteur.",
   "probe.recentTasks": "Tâches récentes",
   "probe.syncAndRefresh": "Synchroniser la sonde et actualiser",
   "probe.refreshTasks": "Actualiser les tâches",

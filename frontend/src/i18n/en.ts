@@ -1325,7 +1325,7 @@ export const en = {
   "probe.noAssignedTargets": "No targets are assigned to this zone.",
   "probe.dispatch": "Run on this probe",
   "probe.taskQueued": "Task submitted. Refresh tasks after synchronization to see its status.",
-  "probe.targetLimit": "Maximum 256 targets per task.",
+  "probe.targetLimit": "Maximum {max} targets for this task, based on the engine work limit.",
   "probe.recentTasks": "Recent tasks",
   "probe.syncAndRefresh": "Sync probe and refresh",
   "probe.refreshTasks": "Refresh tasks",

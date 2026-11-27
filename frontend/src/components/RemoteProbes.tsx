@@ -150,7 +150,7 @@ export function RemoteProbes() {
 
   async function dispatchTask() {
     if (!taskProbe) return;
-    const ports = taskPorts.split(/[\s,;]+/).filter(Boolean).map(Number);
+    const ports = [...new Set(taskPorts.split(/[\s,;]+/).filter(Boolean).map(Number))];
     setBusy(true);
     setActionError(undefined);
     setMessage("");
@@ -175,10 +175,12 @@ export function RemoteProbes() {
   const allowedTargets = taskProbe
     ? targets?.filter((target) => zones?.find((zone) => zone.id === taskProbe.network_zone_id)?.target_ids.includes(target.id)) ?? []
     : [];
-  const parsedPorts = taskPorts.split(/[\s,;]+/).filter(Boolean).map(Number);
-  const validPorts = taskKind === "dns" ? parsedPorts.length === 0 : parsedPorts.length > 0 && parsedPorts.length <= 64
+  const parsedPorts = [...new Set(taskPorts.split(/[\s,;]+/).filter(Boolean).map(Number))];
+  const validPorts = taskKind === "dns" ? parsedPorts.length === 0 : parsedPorts.length > 0 && parsedPorts.length <= (taskKind === "ipsec" ? 2 : 32)
     && parsedPorts.every((port) => Number.isInteger(port) && port >= 1 && port <= 65535)
     && (taskKind !== "ipsec" || parsedPorts.every((port) => port === 500 || port === 4500));
+  const taskWorkLimit = taskKind === "ipsec" ? 128 : taskKind === "dns" ? 256 : 32;
+  const maxTaskTargets = taskKind === "dns" ? 256 : Math.min(256, Math.floor(taskWorkLimit / Math.max(parsedPorts.length, 1)));
 
   return (
     <div className="space-y-4">
@@ -244,12 +246,12 @@ export function RemoteProbes() {
           <fieldset className="space-y-2">
             <legend className="field-label">{t("probe.taskTargets")}</legend>
             {allowedTargets.length ? allowedTargets.map((target) => <label key={target.id} className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={taskTargets.includes(target.id)} disabled={!taskTargets.includes(target.id) && taskTargets.length >= 256} onChange={(e) => setTaskTargets(e.target.checked ? [...taskTargets, target.id] : taskTargets.filter((id) => id !== target.id))} />
+              <input type="checkbox" checked={taskTargets.includes(target.id)} disabled={!taskTargets.includes(target.id) && taskTargets.length >= maxTaskTargets} onChange={(e) => setTaskTargets(e.target.checked ? [...taskTargets, target.id] : taskTargets.filter((id) => id !== target.id))} />
               <span>{target.name || target.value} <span className="font-mono text-xs text-muted">{target.value}</span></span>
             </label>) : <p className="text-sm text-muted">{t("probe.noAssignedTargets")}</p>}
           </fieldset>
-          {taskTargets.length >= 256 && <p className="text-xs text-muted">{t("probe.targetLimit")}</p>}
-          <div className="flex justify-end"><Button disabled={!taskProbe.capabilities.includes(taskKind) || !taskTargets.length || !validPorts || busy} onClick={() => void dispatchTask()}>{t("probe.dispatch")}</Button></div>
+          {taskTargets.length >= maxTaskTargets && <p className="text-xs text-muted">{t("probe.targetLimit", { max: maxTaskTargets })}</p>}
+          <div className="flex justify-end"><Button disabled={!taskProbe.capabilities.includes(taskKind) || !taskTargets.length || taskTargets.length > maxTaskTargets || !maxTaskTargets || !validPorts || busy} onClick={() => void dispatchTask()}>{t("probe.dispatch")}</Button></div>
           <div>
             <div className="mb-2 flex items-center justify-between"><h3 className="font-semibold">{t("probe.recentTasks")}</h3><div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => void syncTasks()}>{t("probe.syncAndRefresh")}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => void refreshTasks()}>{t("probe.refreshTasks")}</Button></div></div>
             {tasks.length ? <Table><thead><tr><Th>{t("probe.taskKind")}</Th><Th>{t("probe.taskTargets")}</Th><Th>{t("probe.taskPorts")}</Th><Th>{t("probe.taskStatus")}</Th><Th>{t("probe.taskCreated")}</Th></tr></thead><tbody>{tasks.map((task) => <tr key={task.id}>

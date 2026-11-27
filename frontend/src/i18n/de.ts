@@ -1326,7 +1326,7 @@ export const de: Messages = {
   "probe.noAssignedTargets": "Dieser Zone sind keine Ziele zugewiesen.",
   "probe.dispatch": "Auf dieser Sonde starten",
   "probe.taskQueued": "Aufgabe übermittelt. Nach der Synchronisierung aktualisieren, um den Status zu sehen.",
-  "probe.targetLimit": "Maximal 256 Ziele je Aufgabe.",
+  "probe.targetLimit": "Für diese Aufgabe sind gemäß dem Arbeitslimit der Scan-Engine höchstens {max} Ziele zulässig.",
   "probe.recentTasks": "Letzte Aufgaben",
   "probe.syncAndRefresh": "Sonde synchronisieren und aktualisieren",
   "probe.refreshTasks": "Aufgaben aktualisieren",
