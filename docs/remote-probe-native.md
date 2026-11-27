@@ -2,6 +2,8 @@
 
 La sonde expose une API HTTPS appelée par Orion central. Elle n'établit aucune connexion de contrôle vers le central. Les connexions sortantes de mesure restent limitées aux cibles et ports autorisés, validés localement dans le CIDR affecté à la sonde.
 
+> **État du prototype :** le paquet Debian signé n'est pas encore livré. Les étapes ci-dessous décrivent la configuration et l'unité systemd prévues; l'installation et le démarrage natifs sur un hôte vierge restent à valider avec le paquet.
+
 ## Prérequis
 
 - Debian 13 minimal, architecture amd64 ou arm64.
@@ -57,3 +59,13 @@ Le service s'exécute sans privilèges, avec `/var/lib/orion-probe` comme seul e
 - DNS et les capacités avancées ne sont pas annoncés par ce prototype.
 - La liste des capacités reflète les exécutables disponibles au démarrage. Après installation/retrait d'un moteur, redémarrer le service.
 - Ce livrable ne fournit pas encore de paquet Debian signé, de procédure d'upgrade/rollback, de règle pare-feu automatisée ni de recette multi-zones. Le POC devra aussi mesurer CPU, mémoire, stockage et latence.
+
+## Lancement et suivi des tâches dans Orion
+
+Dans **Administration → Sondes**, un opérateur peut lancer manuellement une tâche sur une sonde active. L'interface ne propose que les capacités annoncées par la sonde et les cibles explicitement affectées à sa zone. L'API centrale revérifie la capacité, l'affectation et le CIDR; la sonde résout ensuite les noms et refuse toute adresse hors de son périmètre local.
+
+Les budgets avant dispatch sont de 32 couples cible-port pour TLS et SSH, et de 128 couples pour IPsec (deux versions IKE). La sonde applique encore une borne après résolution, car un nom DNS peut produire plusieurs adresses. Un dépassement est rejeté et n'est pas converti en résultat « fermé ».
+
+Le panneau permet aussi de synchroniser les événements depuis la sonde et de consulter ses 100 dernières tâches. La synchronisation importe les événements de façon dédupliquée et ne les acquitte qu'après leur commit dans PostgreSQL central. Une page contient au plus 20 événements; plusieurs synchronisations peuvent être nécessaires pour vider un tampon plus important.
+
+Ces tâches manuelles ne sont pas encore lancées depuis une définition ou une planification de scan Orion. Elles ne reprennent pas les profils et politiques de scan existants et ne sont pas encore présentées dans l'historique, la cartographie ou les rapports Orion. Les résultats restent des observations techniques rattachées à la tâche et à la sonde; ils ne modifient pas la note cryptographique d'un scan central.
